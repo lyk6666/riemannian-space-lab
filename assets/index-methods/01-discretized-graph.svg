@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360">
+  <rect width="900" height="360" rx="24" fill="#f7fafc"/>
+  <path d="M70 285 Q240 70 440 185 T830 80" fill="none" stroke="#cbd5e1" stroke-width="130" opacity=".65"/>
+  <g stroke="#94a3b8" stroke-width="2" fill="#fff">
+    <path d="M95 270L180 205L270 245L350 165L445 205L535 130L625 170L720 100L815 125"/>
+    <path d="M120 305L205 245L295 285L380 205L470 245L560 170L650 210L745 140"/>
+    <path d="M95 270L120 305M180 205L205 245M270 245L295 285M350 165L380 205M445 205L470 245M535 130L560 170M625 170L650 210M720 100L745 140"/>
+    <path d="M120 305L180 205M205 245L270 245M295 285L350 165M380 205L445 205M470 245L535 130M560 170L625 170M650 210L720 100"/>
+  </g>
+  <rect x="390" y="145" width="115" height="100" rx="16" fill="#334155"/>
+  <text x="447" y="199" text-anchor="middle" font-family="Arial" font-size="20" fill="white">obstacle</text>
+  <polyline points="95,270 180,205 270,245 350,165 380,205 470,245 560,170 625,170 720,100 815,125" fill="none" stroke="#e11d48" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#e11d48"><circle cx="95" cy="270" r="10"/><circle cx="180" cy="205" r="7"/><circle cx="270" cy="245" r="7"/><circle cx="350" cy="165" r="7"/><circle cx="380" cy="205" r="7"/><circle cx="470" cy="245" r="7"/><circle cx="560" cy="170" r="7"/><circle cx="625" cy="170" r="7"/><circle cx="720" cy="100" r="7"/><circle cx="815" cy="125" r="10"/></g>
+  <text x="72" y="265" font-family="Arial" font-weight="bold" font-size="28" fill="#0f172a">s</text>
+  <text x="832" y="130" font-family="Arial" font-weight="bold" font-size="28" fill="#0f172a">t</text>
+  <text x="450" y="335" text-anchor="middle" font-family="Arial" font-size="22" fill="#334155">Weighted mesh graph: the path follows valid graph connections</text>
+</svg>

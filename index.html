@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#071018" />
+    <title>Riemannian Space Lab</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Interactive geometry environment</p>
+          <h1>Riemannian Space Lab</h1>
+        </div>
+        <div class="header-actions">
+          <button id="import-button" class="button button-ghost">Import</button>
+          <button id="export-button" class="button button-ghost">Export</button>
+          <input id="import-input" type="file" accept="application/json" hidden />
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel controls-panel">
+          <section>
+            <p class="section-kicker">01 · Terrain</p>
+            <h2>Shape the manifold</h2>
+            <label class="control-row">
+              <span>Amplitude <output id="amplitude-output">1.60</output></span>
+              <input id="amplitude" type="range" min="0.4" max="3" step="0.05" value="1.6" />
+            </label>
+            <label class="control-row">
+              <span>Frequency <output id="frequency-output">0.70</output></span>
+              <input id="frequency" type="range" min="0.3" max="1.5" step="0.05" value="0.7" />
+            </label>
+            <label class="control-row">
+              <span>Mesh resolution <output id="resolution-output">64</output></span>
+              <input id="resolution" type="range" min="24" max="120" step="8" value="64" />
+            </label>
+            <label class="select-row">
+              <span>Surface colour</span>
+              <select id="color-mode">
+                <option value="distortion">Metric distortion</option>
+                <option value="height">Height</option>
+                <option value="slope">Slope</option>
+              </select>
+            </label>
+            <label class="toggle-row">
+              <input id="wireframe" type="checkbox" checked />
+              <span>Show triangulation</span>
+            </label>
+          </section>
+
+          <section>
+            <p class="section-kicker">02 · Placement</p>
+            <h2>Add query geometry</h2>
+            <div class="mode-grid" role="group" aria-label="Placement mode">
+              <button class="mode-button active" data-mode="navigate"><span>↻</span>Navigate</button>
+              <button class="mode-button" data-mode="source"><span class="dot source-dot"></span>Source</button>
+              <button class="mode-button" data-mode="destination"><span class="dot destination-dot"></span>Destination</button>
+              <button class="mode-button" data-mode="obstacle"><span class="polygon-icon">⬡</span>Obstacle</button>
+            </div>
+            <div id="obstacle-actions" class="obstacle-actions hidden">
+              <p>Click at least three surface points, then close the polygon.</p>
+              <div class="button-row">
+                <button id="close-polygon" class="button button-primary" disabled>Close polygon</button>
+                <button id="cancel-polygon" class="button button-ghost">Cancel</button>
+              </div>
+            </div>
+            <div class="button-row spaced">
+              <button id="undo-obstacle" class="button button-ghost">Remove last obstacle</button>
+              <button id="clear-all" class="button button-danger">Clear points</button>
+            </div>
+          </section>
+
+          <section class="metric-card">
+            <p class="section-kicker">Induced metric</p>
+            <div class="formula">g = J<sup>T</sup>J</div>
+            <p>For <em>r</em>(x,y) = (x,y,f(x,y)), the surface metric changes continuously with the terrain slope.</p>
+          </section>
+        </aside>
+
+        <section class="viewport-shell">
+          <div id="viewport" aria-label="Interactive three-dimensional Riemannian surface"></div>
+          <div class="viewport-overlay top-left">
+            <span class="live-indicator"></span>
+            <span>Interactive 3D</span>
+          </div>
+          <div class="viewport-overlay top-right legend">
+            <span><i class="legend-swatch low"></i>low distortion</span>
+            <span><i class="legend-swatch high"></i>high distortion</span>
+          </div>
+          <div id="cursor-readout" class="viewport-overlay bottom-left">Move over the surface to inspect coordinates</div>
+          <div class="viewport-help">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+        </section>
+
+        <aside class="panel info-panel">
+          <section>
+            <p class="section-kicker">Scene status</p>
+            <h2>Problem setup</h2>
+            <dl class="stats">
+              <div><dt>Source</dt><dd id="source-status">Not placed</dd></div>
+              <div><dt>Destination</dt><dd id="destination-status">Not placed</dd></div>
+              <div><dt>Obstacles</dt><dd id="obstacle-count">0 polygons</dd></div>
+              <div><dt>Triangles</dt><dd id="triangle-count">8,192</dd></div>
+            </dl>
+          </section>
+
+          <section>
+            <p class="section-kicker">How to use</p>
+            <ol class="steps">
+              <li><span>1</span><p>Shape the curved terrain with the controls.</p></li>
+              <li><span>2</span><p>Select <strong>Source</strong> or <strong>Destination</strong>, then click the surface.</p></li>
+              <li><span>3</span><p>Select <strong>Obstacle</strong>, click polygon vertices, then close it.</p></li>
+              <li><span>4</span><p>Export the setup for later path-index experiments.</p></li>
+            </ol>
+          </section>
+
+          <section class="note-card">
+            <strong>Current scope</strong>
+            <p>This stage defines and visualizes the problem only. Shortest-path computation will be added separately.</p>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="statusbar">
+        <span id="status-message">Ready. Choose a placement mode or explore the surface.</span>
+        <span>Static manifold · Polygon obstacles</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

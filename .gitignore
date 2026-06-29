@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.pnpm-store/
+.agents/
+.codex/
+
+# Local environment files
+.env
+.env.*
+*.local
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
