@@ -3,6 +3,8 @@ dist/
 .pnpm-store/
 .agents/
 .codex/
+docs/
+assets/
 
 # Local environment files
 .env
@@ -14,4 +16,3 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
-

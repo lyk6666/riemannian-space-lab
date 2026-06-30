@@ -4,7 +4,6 @@ An interactive browser environment for defining a shortest-path problem on a cur
 
 ## Documentation
 
-- [Project report](docs/RiemannGL.pdf)
 - [Index-method survey](riemannian-shortest-path-index-methods.md)
 
 ## Run locally
