@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createTerrainGeometry, getSurfaceDomain, metricData, surfacePosition } from '../src/geometry/surface.js';
 import { createObstacleObject, validateObstacleForSurface } from '../src/geometry/obstacles.js';
 import { listSurfaces } from '../src/surfaces/registry.js';
+import {
+  buildFaceAdjacency,
+  createFaceObstacleObject,
+  createImportedMeshGeometry,
+  facePatch,
+  parseMeshContent,
+} from '../src/geometry/importedMesh.js';
+
+const parametricSurfaces = () => listSurfaces().filter((surface) => surface.kind !== 'mesh');
 
 function configFor(surface) {
   return {
@@ -18,8 +28,9 @@ function assertFiniteVector(vector, label) {
 }
 
 test('all registered parametric surfaces produce finite meshes and positive metrics', () => {
-  assert.equal(listSurfaces().length, 16);
-  for (const surface of listSurfaces()) {
+  assert.equal(parametricSurfaces().length, 16);
+  assert.equal(listSurfaces().length, 18);
+  for (const surface of parametricSurfaces()) {
     const config = configFor(surface);
     const domain = getSurfaceDomain(config);
     for (const [fu, fv] of [[0.23, 0.31], [0.51, 0.47], [0.78, 0.69]]) {
@@ -38,7 +49,7 @@ test('all registered parametric surfaces produce finite meshes and positive metr
 });
 
 test('surface-clipped obstacles work on every registered parameter domain', () => {
-  for (const surface of listSurfaces()) {
+  for (const surface of parametricSurfaces()) {
     const config = configFor(surface);
     const domain = getSurfaceDomain(config);
     const centreU = (domain.uMin + domain.uMax) / 2;
@@ -75,7 +86,7 @@ test('Poincaré metric expands toward the boundary and heightmaps affect elevati
 });
 
 test('periodic seams close geometrically and reject crossing obstacles', () => {
-  for (const surface of listSurfaces()) {
+  for (const surface of parametricSurfaces()) {
     const config = configFor(surface);
     const domain = getSurfaceDomain(config);
     const middleU = (domain.uMin + domain.uMax) / 2;
@@ -93,4 +104,71 @@ test('periodic seams close geometrically and reject crossing obstacles', () => {
       assert.ok(surfacePosition(middleU, domain.vMin, config).distanceTo(surfacePosition(middleU, domain.vMax, config)) < 1e-5, `${surface.name} v seam is open`);
     }
   }
+});
+
+test('OBJ, PLY, and STL import into normalized triangle meshes', () => {
+  const obj = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n';
+  const ply = `ply
+format ascii 1.0
+element vertex 3
+property float x
+property float y
+property float z
+element face 1
+property list uchar int vertex_indices
+end_header
+0 0 0
+1 0 0
+0 1 0
+3 0 1 2
+`;
+  const stl = `solid triangle
+facet normal 0 0 1
+outer loop
+vertex 0 0 0
+vertex 1 0 0
+vertex 0 1 0
+endloop
+endfacet
+endsolid triangle`;
+  const fixtures = [
+    ['triangle.obj', obj],
+    ['triangle.ply', new TextEncoder().encode(ply).buffer],
+    ['triangle.stl', new TextEncoder().encode(stl).buffer],
+  ];
+  for (const [filename, content] of fixtures) {
+    const meshData = parseMeshContent(filename, content);
+    assert.equal(meshData.faceCount, 1, filename);
+    assert.equal(meshData.positions.length, 9, filename);
+    assert.ok(meshData.positions.every(Number.isFinite), filename);
+  }
+});
+
+test('mesh face adjacency supports connected obstacle painting', () => {
+  const meshData = {
+    filename: 'square.obj',
+    faceCount: 2,
+    positions: [
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+      1, 0, 0, 1, 1, 0, 0, 1, 0,
+    ],
+  };
+  const adjacency = buildFaceAdjacency(meshData);
+  assert.deepEqual(adjacency, [[1], [0]]);
+  assert.deepEqual(facePatch(0, 1, adjacency).sort(), [0, 1]);
+  const terrain = createImportedMeshGeometry(meshData);
+  const obstacle = createFaceObstacleObject(meshData, [1]);
+  assert.equal(terrain.getAttribute('position').count, 6);
+  assert.equal(obstacle.geometry.getAttribute('position').count, 3);
+  terrain.dispose();
+  obstacle.geometry.dispose();
+  obstacle.material.dispose();
+});
+
+test('bundled Stanford Bunny parses as a non-empty benchmark mesh', () => {
+  const bytes = readFileSync(new URL('../public/models/stanford-bunny.ply', import.meta.url));
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const bunny = parseMeshContent('stanford-bunny.ply', arrayBuffer);
+  assert.ok(bunny.faceCount > 10_000);
+  assert.ok(bunny.positions.every(Number.isFinite));
 });

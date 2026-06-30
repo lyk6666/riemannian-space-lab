@@ -19,6 +19,7 @@
           <button id="export-button" class="button button-ghost">Export</button>
           <input id="import-input" type="file" accept="application/json" hidden />
           <input id="heightmap-input" type="file" accept="image/png,image/jpeg" hidden />
+          <input id="mesh-input" type="file" accept=".obj,.ply,.stl" hidden />
         </div>
       </header>
 
@@ -106,7 +107,7 @@
             <ol class="steps">
               <li><span>1</span><p>Shape the curved terrain with the controls.</p></li>
               <li><span>2</span><p>Select <strong>Source</strong> or <strong>Destination</strong>, then click the surface.</p></li>
-              <li><span>3</span><p>Select <strong>Obstacle</strong>, click polygon vertices, then close it.</p></li>
+              <li><span>3</span><p>Select <strong>Obstacle</strong>; draw a polygon on parameterized spaces or paint faces on imported meshes.</p></li>
               <li><span>4</span><p>Export the setup for later path-index experiments.</p></li>
             </ol>
           </section>
@@ -132,7 +133,7 @@
 
       <footer class="statusbar">
         <span id="status-message">Ready. Choose a placement mode or explore the surface.</span>
-        <span>Static manifold · Surface-clipped polygon obstacles</span>
+        <span>Static manifold · Surface-clipped obstacles</span>
       </footer>
     </div>
     <script type="module" src="/src/main.js"></script>

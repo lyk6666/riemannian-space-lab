@@ -13,6 +13,8 @@ export function createSceneState() {
     destination: null,
     obstacles: [],
     draftObstacle: [],
+    meshData: null,
+    blockedFaces: [],
   };
 }
 
@@ -31,6 +33,8 @@ export function scenePayload(state) {
     source: state.source,
     destination: state.destination,
     obstacles: state.obstacles,
+    meshData: state.meshData,
+    blockedFaces: state.blockedFaces,
   };
 }
 
@@ -54,6 +58,8 @@ export function applyPayloadToState(state, payload) {
     ? payload.obstacles.map((polygon) => polygon.map(normalizePoint))
     : [];
   state.draftObstacle = [];
+  state.meshData = payload.meshData || null;
+  state.blockedFaces = Array.isArray(payload.blockedFaces) ? payload.blockedFaces : [];
 }
 
 export function selectSurface(state, surfaceId) {
@@ -64,10 +70,23 @@ export function selectSurface(state, surfaceId) {
   state.destination = null;
   state.obstacles = [];
   state.draftObstacle = [];
+  state.meshData = null;
+  state.blockedFaces = [];
 }
 
 export function persistScene(state) {
-  localStorage.setItem('riemannian-space-lab-scene', JSON.stringify(scenePayload(state)));
+  const serialized = JSON.stringify(scenePayload(state));
+  if (serialized.length > 3_500_000) {
+    localStorage.removeItem('riemannian-space-lab-scene');
+    return false;
+  }
+  try {
+    localStorage.setItem('riemannian-space-lab-scene', serialized);
+    return true;
+  } catch {
+    localStorage.removeItem('riemannian-space-lab-scene');
+    return false;
+  }
 }
 
 export function restoreScene(state) {

@@ -25,6 +25,10 @@ function makeLabel(text, color) {
 }
 
 export function createMarker(point, color, label, config) {
+  return createMarkerAtPosition(surfacePosition(point.u, point.v, config), color, label);
+}
+
+export function createMarkerAtPosition(position, color, label) {
   const group = new THREE.Group();
   const marker = new THREE.Mesh(
     new THREE.SphereGeometry(0.16, 24, 16),
@@ -39,7 +43,7 @@ export function createMarker(point, color, label, config) {
   const sprite = makeLabel(label, `#${new THREE.Color(color).getHexString()}`);
   sprite.position.y = 0.95;
   group.add(marker, stem, sprite);
-  group.position.copy(surfacePosition(point.u, point.v, config));
+  group.position.copy(position);
   return group;
 }
 

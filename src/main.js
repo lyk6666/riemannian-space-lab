@@ -16,7 +16,15 @@ import {
   pointInsideAnyObstacle,
   validateObstacleForSurface,
 } from './geometry/obstacles.js';
-import { createMarker, disposeObject } from './rendering/markers.js';
+import {
+  buildFaceAdjacency,
+  createFaceObstacleObject,
+  createImportedMeshGeometry,
+  facePatch,
+  loadMeshFile,
+  loadMeshUrl,
+} from './geometry/importedMesh.js';
+import { createMarker, createMarkerAtPosition, disposeObject } from './rendering/markers.js';
 import {
   applyPayloadToState,
   createSceneState,
@@ -68,6 +76,8 @@ let sourceObject;
 let destinationObject;
 let draftLine;
 let obstacleObjects = [];
+let faceObstacleObject;
+let meshAdjacency = [];
 let pointerDown = null;
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -77,17 +87,29 @@ function setStatus(message) {
 }
 
 function updateStatusPanel() {
-  const formatPoint = (point) => point ? `(${point.u.toFixed(2)}, ${point.v.toFixed(2)})` : 'Not placed';
+  const surface = getSurfaceDefinition(state);
+  const formatPoint = (point) => {
+    if (!point) return 'Not placed';
+    if (surface.kind === 'mesh') return `face ${point.faceIndex}`;
+    return `(${point.u.toFixed(2)}, ${point.v.toFixed(2)})`;
+  };
   document.querySelector('#source-status').textContent = formatPoint(state.source);
   document.querySelector('#destination-status').textContent = formatPoint(state.destination);
-  document.querySelector('#obstacle-count').textContent = `${state.obstacles.length} polygon${state.obstacles.length === 1 ? '' : 's'}`;
+  document.querySelector('#obstacle-count').textContent = surface.kind === 'mesh'
+    ? `${state.blockedFaces.length} blocked faces`
+    : `${state.obstacles.length} polygon${state.obstacles.length === 1 ? '' : 's'}`;
   document.querySelector('#close-polygon').disabled = state.draftObstacle.length < 3;
+  document.querySelector('#undo-obstacle').textContent = surface.kind === 'mesh' ? 'Clear painted faces' : 'Remove last obstacle';
 }
 
 function rebuildTerrain() {
   disposeObject(terrainMesh);
   disposeObject(terrainWire);
-  const geometry = createTerrainGeometry(state);
+  const surface = getSurfaceDefinition(state);
+  if (surface.kind === 'mesh' && !state.meshData) return;
+  const geometry = surface.kind === 'mesh'
+    ? createImportedMeshGeometry(state.meshData, state.colorMode)
+    : createTerrainGeometry(state);
   terrainMesh = new THREE.Mesh(
     geometry,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.03, side: THREE.DoubleSide }),
@@ -99,8 +121,11 @@ function rebuildTerrain() {
   );
   terrainWire.visible = state.wireframe;
   terrainLayer.add(terrainMesh, terrainWire);
+  meshAdjacency = surface.kind === 'mesh' ? buildFaceAdjacency(state.meshData) : [];
   refreshAnnotations();
-  document.querySelector('#triangle-count').textContent = (state.resolution * state.resolution * 2).toLocaleString();
+  document.querySelector('#triangle-count').textContent = surface.kind === 'mesh'
+    ? state.meshData.faceCount.toLocaleString()
+    : (state.resolution * state.resolution * 2).toLocaleString();
 }
 
 function updateDraftLine() {
@@ -112,17 +137,28 @@ function updateDraftLine() {
 function refreshAnnotations() {
   disposeObject(sourceObject);
   disposeObject(destinationObject);
+  disposeObject(faceObstacleObject);
+  faceObstacleObject = null;
   obstacleObjects.forEach(disposeObject);
   obstacleObjects = [];
-  sourceObject = state.source ? createMarker(state.source, 0x25d0c8, 'SOURCE', state) : null;
-  destinationObject = state.destination ? createMarker(state.destination, 0xffcf5c, 'TARGET', state) : null;
+  const surface = getSurfaceDefinition(state);
+  const markerFor = (point, color, label) => surface.kind === 'mesh'
+    ? createMarkerAtPosition(new THREE.Vector3(...point.position), color, label)
+    : createMarker(point, color, label, state);
+  sourceObject = state.source ? markerFor(state.source, 0x25d0c8, 'SOURCE') : null;
+  destinationObject = state.destination ? markerFor(state.destination, 0xffcf5c, 'TARGET') : null;
   if (sourceObject) annotationLayer.add(sourceObject);
   if (destinationObject) annotationLayer.add(destinationObject);
-  state.obstacles.forEach((polygon) => {
-    const obstacle = createObstacleObject(polygon, state);
-    obstacleObjects.push(obstacle);
-    annotationLayer.add(obstacle);
-  });
+  if (surface.kind === 'mesh') {
+    faceObstacleObject = createFaceObstacleObject(state.meshData, state.blockedFaces);
+    annotationLayer.add(faceObstacleObject);
+  } else {
+    state.obstacles.forEach((polygon) => {
+      const obstacle = createObstacleObject(polygon, state);
+      obstacleObjects.push(obstacle);
+      annotationLayer.add(obstacle);
+    });
+  }
   updateDraftLine();
   updateStatusPanel();
 }
@@ -133,7 +169,11 @@ function pointFromEvent(event) {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObject(terrainMesh, false)[0];
-  return hit?.uv ? parametersFromUv(hit.uv, state) : null;
+  if (!hit) return null;
+  if (getSurfaceDefinition(state).kind === 'mesh') {
+    return { faceIndex: hit.faceIndex, position: hit.point.toArray() };
+  }
+  return hit.uv ? parametersFromUv(hit.uv, state) : null;
 }
 
 function cancelDraft() {
@@ -143,9 +183,10 @@ function cancelDraft() {
 }
 
 function setMode(mode) {
+  const meshMode = getSurfaceDefinition(state).kind === 'mesh';
   state.mode = mode;
   document.querySelectorAll('.mode-button').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
-  document.querySelector('#obstacle-actions').classList.toggle('hidden', mode !== 'obstacle');
+  document.querySelector('#obstacle-actions').classList.toggle('hidden', mode !== 'obstacle' || meshMode);
   controls.enabled = mode === 'navigate';
   renderer.domElement.style.cursor = mode === 'navigate' ? 'grab' : 'crosshair';
   if (mode !== 'obstacle' && state.draftObstacle.length) cancelDraft();
@@ -153,7 +194,9 @@ function setMode(mode) {
     navigate: 'Navigation mode: drag to orbit, scroll to zoom, right-drag to pan.',
     source: 'Source mode: click any traversable point on the curved surface.',
     destination: 'Destination mode: click any traversable point on the curved surface.',
-    obstacle: 'Obstacle mode: click polygon vertices on the surface, then close the polygon.',
+    obstacle: meshMode
+      ? 'Obstacle mode: click the mesh to toggle connected face patches.'
+      : 'Obstacle mode: click polygon vertices on the surface, then close the polygon.',
   };
   setStatus(messages[mode]);
 }
@@ -186,8 +229,30 @@ function handleSurfaceClick(event) {
     setStatus('No surface selected. Click directly on the terrain.');
     return;
   }
+  const meshMode = getSurfaceDefinition(state).kind === 'mesh';
+  if (meshMode && state.mode === 'obstacle') {
+    const patch = facePatch(point.faceIndex, Math.round(state.surfaceParams.brushRings), meshAdjacency);
+    if (patch.includes(state.source?.faceIndex) || patch.includes(state.destination?.faceIndex)) {
+      setStatus('Painted obstacles cannot cover the source or destination face.');
+      return;
+    }
+    const blocked = new Set(state.blockedFaces);
+    const remove = patch.every((face) => blocked.has(face));
+    for (const face of patch) {
+      if (remove) blocked.delete(face);
+      else blocked.add(face);
+    }
+    state.blockedFaces = [...blocked].sort((a, b) => a - b);
+    refreshAnnotations();
+    persistScene(state);
+    setStatus(`${remove ? 'Unpainted' : 'Painted'} ${patch.length} connected faces.`);
+    return;
+  }
   if (state.mode === 'source' || state.mode === 'destination') {
-    if (pointInsideAnyObstacle(point, state.obstacles)) {
+    const blocked = meshMode
+      ? state.blockedFaces.includes(point.faceIndex)
+      : pointInsideAnyObstacle(point, state.obstacles);
+    if (blocked) {
       setStatus('Query points cannot be placed inside an obstacle.');
       return;
     }
@@ -196,9 +261,12 @@ function handleSurfaceClick(event) {
     refreshAnnotations();
     persistScene(state);
     const label = state.mode === 'source' ? 'Source' : 'Destination';
-    setStatus(`${label} placed at (${point.u.toFixed(2)}, ${point.v.toFixed(2)}).`);
+    setStatus(meshMode
+      ? `${label} placed on mesh face ${point.faceIndex}.`
+      : `${label} placed at (${point.u.toFixed(2)}, ${point.v.toFixed(2)}).`);
     return;
   }
+  if (meshMode) return;
   const candidateDraft = [...state.draftObstacle, point];
   if (draftCrossesProtectedSeam(candidateDraft, state)) {
     setStatus('Obstacle edges cannot cross a protected parameter seam.');
@@ -213,6 +281,7 @@ function handleSurfaceClick(event) {
 function syncControls() {
   document.querySelector('#resolution').value = state.resolution;
   document.querySelector('#resolution-output').value = state.resolution;
+  document.querySelector('#resolution').disabled = getSurfaceDefinition(state).kind === 'mesh';
   document.querySelector('#color-mode').value = state.colorMode;
   document.querySelector('#wireframe').checked = state.wireframe;
   renderSurfaceControls();
@@ -241,7 +310,7 @@ function renderSurfaceControls() {
     input.addEventListener('input', () => {
       state.surfaceParams[control.key] = Number.parseFloat(input.value);
       output.value = state.surfaceParams[control.key].toFixed(control.step < 0.1 ? 2 : 1);
-      rebuildTerrain();
+      if (surface.kind !== 'mesh') rebuildTerrain();
       persistScene(state);
     });
     label.append(caption, input);
@@ -297,11 +366,28 @@ function renderSurfaceCards() {
     const description = document.createElement('p');
     description.textContent = surface.description;
     card.append(category, title, description);
-    card.addEventListener('click', () => {
+    card.addEventListener('click', async () => {
+      if (surface.acceptsMesh) {
+        document.querySelector('#mesh-input').click();
+        return;
+      }
+      if (surface.kind === 'mesh' && surface.builtinMeshUrl) {
+        document.querySelector('#space-dialog').close();
+        setStatus(`Loading ${surface.name}…`);
+        try {
+          const meshData = await loadMeshUrl(surface.builtinMeshUrl, 'stanford-bunny.ply');
+          activateMeshSurface(surface.id, meshData);
+          setStatus(`${surface.name} loaded with ${meshData.faceCount.toLocaleString()} faces.`);
+        } catch (error) {
+          setStatus(`Could not load ${surface.name}: ${error.message}.`);
+        }
+        return;
+      }
       if (surface.id !== state.surfaceId) {
         selectSurface(state, surface.id);
         syncControls();
         rebuildTerrain();
+        setMode(state.mode);
         persistScene(state);
         setStatus(`Switched to ${surface.name}. Query geometry was cleared.`);
       }
@@ -311,14 +397,28 @@ function renderSurfaceCards() {
   }
 }
 
+function activateMeshSurface(surfaceId, meshData) {
+  selectSurface(state, surfaceId);
+  state.meshData = meshData;
+  state.blockedFaces = [];
+  syncControls();
+  rebuildTerrain();
+  setMode(state.mode);
+  persistScene(state);
+}
+
 function applyPayload(payload) {
   applyPayloadToState(state, payload);
-  for (const polygon of state.obstacles) {
-    const validation = validateObstacleForSurface(polygon, state);
-    if (!validation.valid) throw new Error(`Invalid obstacle: ${validation.message}`);
+  const surface = getSurfaceDefinition(state);
+  if (surface.kind === 'mesh' && !state.meshData) throw new Error('Imported scene does not contain mesh data');
+  if (surface.kind !== 'mesh') {
+    for (const polygon of state.obstacles) {
+      const validation = validateObstacleForSurface(polygon, state);
+      if (!validation.valid) throw new Error(`Invalid obstacle: ${validation.message}`);
+    }
+    if (state.source && pointInsideAnyObstacle(state.source, state.obstacles)) throw new Error('Source lies inside an obstacle');
+    if (state.destination && pointInsideAnyObstacle(state.destination, state.obstacles)) throw new Error('Destination lies inside an obstacle');
   }
-  if (state.source && pointInsideAnyObstacle(state.source, state.obstacles)) throw new Error('Source lies inside an obstacle');
-  if (state.destination && pointInsideAnyObstacle(state.destination, state.obstacles)) throw new Error('Destination lies inside an obstacle');
   syncControls();
   rebuildTerrain();
   persistScene(state);
@@ -350,10 +450,25 @@ function bindUI() {
       state.obstacles = [];
       syncControls();
       rebuildTerrain();
+      setMode(state.mode);
       persistScene(state);
       setStatus(`Loaded ${file.name} as a ${heightmap.width} × ${heightmap.height} heightmap.`);
     } catch (error) {
       setStatus(`Heightmap import failed: ${error.message}.`);
+    }
+    event.target.value = '';
+  });
+  document.querySelector('#mesh-input').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      setStatus(`Loading ${file.name}…`);
+      const meshData = await loadMeshFile(file);
+      activateMeshSurface('imported-mesh', meshData);
+      document.querySelector('#space-dialog').close();
+      setStatus(`Loaded ${file.name} with ${meshData.faceCount.toLocaleString()} faces.`);
+    } catch (error) {
+      setStatus(`Mesh import failed: ${error.message}.`);
     }
     event.target.value = '';
   });
@@ -373,6 +488,17 @@ function bindUI() {
     setStatus('Draft obstacle cancelled.');
   });
   document.querySelector('#undo-obstacle').addEventListener('click', () => {
+    if (getSurfaceDefinition(state).kind === 'mesh') {
+      if (!state.blockedFaces.length) {
+        setStatus('There are no painted obstacle faces to clear.');
+        return;
+      }
+      state.blockedFaces = [];
+      refreshAnnotations();
+      persistScene(state);
+      setStatus('All painted obstacle faces were cleared.');
+      return;
+    }
     if (!state.obstacles.length) {
       setStatus('There are no completed obstacles to remove.');
       return;
@@ -387,6 +513,7 @@ function bindUI() {
     state.destination = null;
     state.obstacles = [];
     state.draftObstacle = [];
+    state.blockedFaces = [];
     refreshAnnotations();
     persistScene(state);
     setStatus('Source, destination, and all obstacles cleared.');
@@ -429,6 +556,10 @@ renderer.domElement.addEventListener('pointermove', (event) => {
   const readout = document.querySelector('#cursor-readout');
   if (!point) {
     readout.textContent = 'Move over the surface to inspect coordinates';
+    return;
+  }
+  if (getSurfaceDefinition(state).kind === 'mesh') {
+    readout.textContent = `face ${point.faceIndex} · x ${point.position[0].toFixed(2)} · y ${point.position[1].toFixed(2)} · z ${point.position[2].toFixed(2)}`;
     return;
   }
   const position = surfacePosition(point.u, point.v, state);

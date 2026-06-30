@@ -71,6 +71,12 @@ heightmap/DEM mode. Heightmaps accept PNG or JPEG files, are downsampled to a
 maximum dimension of 128 pixels for interactive evaluation, and remain embedded
 in exported scene JSON.
 
+OBJ, PLY, and STL triangle meshes can be imported from the configuration modal.
+Imported meshes use connected face painting for obstacles, with a configurable
+brush-ring radius. A reduced Stanford Bunny from the Stanford 3D Scanning
+Repository is bundled as a classic benchmark; attribution is recorded in
+`public/models/ATTRIBUTION.md`.
+
 ## Source structure
 
 ```text

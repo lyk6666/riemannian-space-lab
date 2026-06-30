@@ -1,7 +1,8 @@
 import { analyticSurfaces } from './analytic.js';
 import { specialSurfaces } from './special.js';
+import { meshSurfaces } from './mesh.js';
 
-const surfaces = [...analyticSurfaces, ...specialSurfaces];
+const surfaces = [...analyticSurfaces, ...specialSurfaces, ...meshSurfaces];
 const surfaceMap = new Map(surfaces.map((surface) => [surface.id, surface]));
 
 export function listSurfaces() {
