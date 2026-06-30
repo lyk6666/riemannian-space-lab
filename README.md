@@ -15,6 +15,12 @@ pnpm dev
 
 Open the local address printed by Vite, normally `http://127.0.0.1:5173`.
 
+Run the deterministic geometry and import checks with:
+
+```powershell
+pnpm test
+```
+
 ## Controls
 
 - Adjust amplitude, frequency, mesh resolution, and surface colour from the left panel.

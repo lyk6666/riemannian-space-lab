@@ -16,7 +16,7 @@ function collectObjPositions(text) {
     let geometry = child.geometry.clone();
     geometry.applyMatrix4(child.matrixWorld);
     if (geometry.index) geometry = geometry.toNonIndexed();
-    positions.push(...geometry.getAttribute('position').array);
+    for (const value of geometry.getAttribute('position').array) positions.push(value);
     geometry.dispose();
   });
   return positions;
@@ -33,6 +33,7 @@ function positionsFromGeometry(inputGeometry) {
 
 function normalizePositions(rawPositions) {
   if (rawPositions.length < 9 || rawPositions.length % 9 !== 0) throw new Error('The file does not contain complete triangle faces');
+  if (rawPositions.length / 9 > 250_000) throw new Error('Meshes are limited to 250,000 triangle faces for interactive use');
   const box = new THREE.Box3();
   for (let index = 0; index < rawPositions.length; index += 3) {
     box.expandByPoint(new THREE.Vector3(rawPositions[index], rawPositions[index + 1], rawPositions[index + 2]));
@@ -86,10 +87,12 @@ export function createImportedMeshGeometry(meshData, colorMode = 'distortion') {
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
   const normals = geometry.getAttribute('normal').array;
-  const yValues = [];
-  for (let index = 1; index < positions.length; index += 3) yValues.push(positions[index]);
-  const minY = Math.min(...yValues);
-  const maxY = Math.max(...yValues);
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let index = 1; index < positions.length; index += 3) {
+    minY = Math.min(minY, positions[index]);
+    maxY = Math.max(maxY, positions[index]);
+  }
   const rangeY = Math.max(maxY - minY, 1e-8);
   const colors = [];
   for (let vertex = 0; vertex < positions.length / 3; vertex += 1) {
@@ -110,15 +113,16 @@ function vertexKey(positions, offset) {
 
 export function buildFaceAdjacency(meshData) {
   const adjacency = Array.from({ length: meshData.faceCount }, () => new Set());
-  const owners = new Map();
+  const edgeOwners = new Map();
   for (let face = 0; face < meshData.faceCount; face += 1) {
-    for (let corner = 0; corner < 3; corner += 1) {
-      const key = vertexKey(meshData.positions, face * 9 + corner * 3);
-      if (!owners.has(key)) owners.set(key, []);
-      owners.get(key).push(face);
+    const vertices = [0, 1, 2].map((corner) => vertexKey(meshData.positions, face * 9 + corner * 3));
+    for (const [a, b] of [[vertices[0], vertices[1]], [vertices[1], vertices[2]], [vertices[2], vertices[0]]]) {
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (!edgeOwners.has(key)) edgeOwners.set(key, []);
+      edgeOwners.get(key).push(face);
     }
   }
-  for (const faces of owners.values()) {
+  for (const faces of edgeOwners.values()) {
     for (const a of faces) for (const b of faces) if (a !== b) adjacency[a].add(b);
   }
   return adjacency.map((neighbors) => [...neighbors]);
@@ -144,7 +148,7 @@ export function facePatch(seedFace, rings, adjacency) {
 export function createFaceObstacleObject(meshData, blockedFaces) {
   const positions = [];
   for (const face of blockedFaces) {
-    positions.push(...meshData.positions.slice(face * 9, face * 9 + 9));
+    for (let offset = face * 9; offset < face * 9 + 9; offset += 1) positions.push(meshData.positions[offset]);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -159,4 +163,3 @@ export function createFaceObstacleObject(meshData, blockedFaces) {
     polygonOffsetUnits: -2,
   }));
 }
-

@@ -147,18 +147,19 @@ endsolid triangle`;
 test('mesh face adjacency supports connected obstacle painting', () => {
   const meshData = {
     filename: 'square.obj',
-    faceCount: 2,
+    faceCount: 3,
     positions: [
       0, 0, 0, 1, 0, 0, 0, 1, 0,
       1, 0, 0, 1, 1, 0, 0, 1, 0,
+      0, 0, 0, -1, 0, 0, 0, -1, 0,
     ],
   };
   const adjacency = buildFaceAdjacency(meshData);
-  assert.deepEqual(adjacency, [[1], [0]]);
+  assert.deepEqual(adjacency, [[1], [0], []]);
   assert.deepEqual(facePatch(0, 1, adjacency).sort(), [0, 1]);
   const terrain = createImportedMeshGeometry(meshData);
   const obstacle = createFaceObstacleObject(meshData, [1]);
-  assert.equal(terrain.getAttribute('position').count, 6);
+  assert.equal(terrain.getAttribute('position').count, 9);
   assert.equal(obstacle.geometry.getAttribute('position').count, 3);
   terrain.dispose();
   obstacle.geometry.dispose();
