@@ -52,6 +52,23 @@ The default colour map displays the local area distortion
 - Curved, non-flat height-field manifold
 - Interactive terrain controls
 - Arbitrary source and destination placement
-- Multiple polygonal obstacles
+- Multiple polygonal obstacles clipped directly to the rendered terrain triangles
+- Validation for duplicate vertices, negligible area, and self-intersecting obstacle edges
+- Protection against placing query points inside obstacles
 - Local persistence and JSON import/export
 - No shortest-path computation yet
+
+## Source structure
+
+```text
+src/
+├── geometry/
+│   ├── surface.js       # surface, derivatives, metric, and terrain mesh
+│   └── obstacles.js     # polygon validation and surface clipping
+├── rendering/
+│   └── markers.js       # query markers and WebGL resource disposal
+├── state/
+│   └── sceneState.js    # scene schema, persistence, and import state
+├── main.js              # Three.js scene and application event wiring
+└── style.css            # application layout and visual design
+```
