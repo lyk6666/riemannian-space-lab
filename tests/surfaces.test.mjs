@@ -17,8 +17,8 @@ function assertFiniteVector(vector, label) {
   assert.ok([vector.x, vector.y, vector.z].every(Number.isFinite), `${label} contains non-finite coordinates`);
 }
 
-test('all analytical surfaces produce finite meshes and positive metrics', () => {
-  assert.equal(listSurfaces().length, 14);
+test('all registered parametric surfaces produce finite meshes and positive metrics', () => {
+  assert.equal(listSurfaces().length, 16);
   for (const surface of listSurfaces()) {
     const config = configFor(surface);
     const domain = getSurfaceDomain(config);
@@ -37,7 +37,7 @@ test('all analytical surfaces produce finite meshes and positive metrics', () =>
   }
 });
 
-test('surface-clipped obstacles work on every analytical parameter domain', () => {
+test('surface-clipped obstacles work on every registered parameter domain', () => {
   for (const surface of listSurfaces()) {
     const config = configFor(surface);
     const domain = getSurfaceDomain(config);
@@ -58,6 +58,20 @@ test('surface-clipped obstacles work on every analytical parameter domain', () =
     object.geometry.dispose();
     object.material.dispose();
   }
+});
+
+test('Poincaré metric expands toward the boundary and heightmaps affect elevation', () => {
+  const poincare = listSurfaces().find((surface) => surface.id === 'poincare-disk');
+  const poincareConfig = configFor(poincare);
+  assert.ok(metricData(Math.PI, 0.85, poincareConfig).distortion > metricData(Math.PI, 0.2, poincareConfig).distortion);
+
+  const heightmap = listSurfaces().find((surface) => surface.id === 'heightmap');
+  const heightmapConfig = configFor(heightmap);
+  heightmapConfig.surfaceParams.heightmap = { width: 2, height: 2, values: [0, 1, 0, 1] };
+  const domain = getSurfaceDomain(heightmapConfig);
+  const low = surfacePosition(domain.uMin, 0, heightmapConfig).y;
+  const high = surfacePosition(domain.uMax, 0, heightmapConfig).y;
+  assert.ok(high > low);
 });
 
 test('periodic seams close geometrically and reject crossing obstacles', () => {

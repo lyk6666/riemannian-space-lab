@@ -61,6 +61,8 @@ p { line-height: 1.55; }
 .panel section { padding: 22px; border-bottom: 1px solid var(--line); }
 
 .control-row { display: block; margin: 16px 0; }
+.heightmap-control { margin: 16px 0 4px; padding: 12px; border: 1px solid rgba(37,208,200,.25); border-radius: 8px; background: rgba(37,208,200,.05); }
+.heightmap-control p { margin: 0 0 10px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .control-row > span, .select-row > span { display: flex; justify-content: space-between; margin-bottom: 8px; color: #c8d4da; font-size: 12px; }
 output { color: var(--cyan); font: 500 11px "DM Mono", monospace; }
 input[type="range"] { width: 100%; accent-color: var(--cyan); }

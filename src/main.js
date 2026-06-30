@@ -247,6 +247,38 @@ function renderSurfaceControls() {
     label.append(caption, input);
     container.append(label);
   }
+  if (surface.acceptsHeightmap) {
+    const panel = document.createElement('div');
+    panel.className = 'heightmap-control';
+    const source = document.createElement('p');
+    source.textContent = `Elevation source: ${state.surfaceParams.sourceName}`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'button button-primary';
+    button.textContent = 'Load PNG / JPEG';
+    button.addEventListener('click', () => document.querySelector('#heightmap-input').click());
+    panel.append(source, button);
+    container.append(panel);
+  }
+}
+
+async function decodeHeightmap(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 128 / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(2, Math.round(bitmap.width * scale));
+  const height = Math.max(2, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const values = [];
+  for (let index = 0; index < pixels.length; index += 4) {
+    values.push((0.2126 * pixels[index] + 0.7152 * pixels[index + 1] + 0.0722 * pixels[index + 2]) / 255);
+  }
+  return { width, height, values };
 }
 
 function renderSurfaceCards() {
@@ -305,6 +337,26 @@ function bindUI() {
     document.querySelector('#space-dialog').showModal();
   });
   document.querySelector('#space-dialog-close').addEventListener('click', () => document.querySelector('#space-dialog').close());
+  document.querySelector('#heightmap-input').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const heightmap = await decodeHeightmap(file);
+      if (state.surfaceId !== 'heightmap') selectSurface(state, 'heightmap');
+      state.surfaceParams.heightmap = heightmap;
+      state.surfaceParams.sourceName = file.name;
+      state.source = null;
+      state.destination = null;
+      state.obstacles = [];
+      syncControls();
+      rebuildTerrain();
+      persistScene(state);
+      setStatus(`Loaded ${file.name} as a ${heightmap.width} × ${heightmap.height} heightmap.`);
+    } catch (error) {
+      setStatus(`Heightmap import failed: ${error.message}.`);
+    }
+    event.target.value = '';
+  });
   document.querySelector('#color-mode').addEventListener('change', (event) => {
     state.colorMode = event.target.value;
     rebuildTerrain();

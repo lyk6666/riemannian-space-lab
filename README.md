@@ -66,6 +66,11 @@ of revolution, catenoid, helicoid, Möbius strip, and a Klein-bottle immersion.
 Periodic parameter seams are protected: obstacles must remain on one side of a
 seam so that their polygon representation stays unambiguous.
 
+The catalogue also includes a Poincaré disk with its hyperbolic metric and a
+heightmap/DEM mode. Heightmaps accept PNG or JPEG files, are downsampled to a
+maximum dimension of 128 pixels for interactive evaluation, and remain embedded
+in exported scene JSON.
+
 ## Source structure
 
 ```text
