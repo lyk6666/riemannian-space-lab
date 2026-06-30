@@ -58,6 +58,14 @@ The default colour map displays the local area distortion
 - Local persistence and JSON import/export
 - No shortest-path computation yet
 
+## Built-in analytical spaces
+
+The configuration modal currently includes sinusoidal terrain, sphere, ellipsoid,
+cylinder, cone, torus, paraboloid, hyperbolic paraboloid, Gaussian hill, surface
+of revolution, catenoid, helicoid, Möbius strip, and a Klein-bottle immersion.
+Periodic parameter seams are protected: obstacles must remain on one side of a
+seam so that their polygon representation stays unambiguous.
+
 ## Source structure
 
 ```text

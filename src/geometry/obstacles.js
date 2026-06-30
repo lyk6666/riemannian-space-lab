@@ -50,6 +50,30 @@ export function validateObstacle(points) {
   return { valid: true, message: '' };
 }
 
+export function validateObstacleForSurface(points, config) {
+  const validation = validateObstacle(points);
+  if (!validation.valid) return validation;
+  const domain = getSurfaceDomain(config);
+  const uValues = points.map((point) => point.u);
+  const vValues = points.map((point) => point.v);
+  if (domain.uPeriodic && Math.max(...uValues) - Math.min(...uValues) > (domain.uMax - domain.uMin) / 2) {
+    return { valid: false, message: 'This obstacle crosses the protected u-parameter seam.' };
+  }
+  if (domain.vPeriodic && Math.max(...vValues) - Math.min(...vValues) > (domain.vMax - domain.vMin) / 2) {
+    return { valid: false, message: 'This obstacle crosses the protected v-parameter seam.' };
+  }
+  return validation;
+}
+
+export function draftCrossesProtectedSeam(points, config) {
+  if (points.length < 2) return false;
+  const domain = getSurfaceDomain(config);
+  const uValues = points.map((point) => point.u);
+  const vValues = points.map((point) => point.v);
+  return (domain.uPeriodic && Math.max(...uValues) - Math.min(...uValues) > (domain.uMax - domain.uMin) / 2)
+    || (domain.vPeriodic && Math.max(...vValues) - Math.min(...vValues) > (domain.vMax - domain.vMin) / 2);
+}
+
 export function pointInPolygon(point, polygon) {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {

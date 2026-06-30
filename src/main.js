@@ -11,9 +11,10 @@ import {
 import {
   createDraftLine,
   createObstacleObject,
+  draftCrossesProtectedSeam,
   pointInPolygon,
   pointInsideAnyObstacle,
-  validateObstacle,
+  validateObstacleForSurface,
 } from './geometry/obstacles.js';
 import { createMarker, disposeObject } from './rendering/markers.js';
 import {
@@ -158,7 +159,7 @@ function setMode(mode) {
 }
 
 function closePolygon() {
-  const validation = validateObstacle(state.draftObstacle);
+  const validation = validateObstacleForSurface(state.draftObstacle, state);
   if (!validation.valid) {
     setStatus(validation.message);
     return;
@@ -196,6 +197,11 @@ function handleSurfaceClick(event) {
     persistScene(state);
     const label = state.mode === 'source' ? 'Source' : 'Destination';
     setStatus(`${label} placed at (${point.u.toFixed(2)}, ${point.v.toFixed(2)}).`);
+    return;
+  }
+  const candidateDraft = [...state.draftObstacle, point];
+  if (draftCrossesProtectedSeam(candidateDraft, state)) {
+    setStatus('Obstacle edges cannot cross a protected parameter seam.');
     return;
   }
   state.draftObstacle.push(point);
@@ -276,7 +282,7 @@ function renderSurfaceCards() {
 function applyPayload(payload) {
   applyPayloadToState(state, payload);
   for (const polygon of state.obstacles) {
-    const validation = validateObstacle(polygon);
+    const validation = validateObstacleForSurface(polygon, state);
     if (!validation.valid) throw new Error(`Invalid obstacle: ${validation.message}`);
   }
   if (state.source && pointInsideAnyObstacle(state.source, state.obstacles)) throw new Error('Source lies inside an obstacle');
