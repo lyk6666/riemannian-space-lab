@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './style.css';
-import { DOMAIN, createTerrainGeometry, metricData, surfaceHeight } from './geometry/surface.js';
+import {
+  createTerrainGeometry,
+  getSurfaceDefinition,
+  metricData,
+  parametersFromUv,
+  surfacePosition,
+} from './geometry/surface.js';
 import {
   createDraftLine,
   createObstacleObject,
@@ -16,7 +22,9 @@ import {
   persistScene,
   restoreScene,
   scenePayload,
+  selectSurface,
 } from './state/sceneState.js';
+import { listSurfaces } from './surfaces/registry.js';
 
 const state = createSceneState();
 const viewport = document.querySelector('#viewport');
@@ -68,7 +76,7 @@ function setStatus(message) {
 }
 
 function updateStatusPanel() {
-  const formatPoint = (point) => point ? `(${point.x.toFixed(2)}, ${point.y.toFixed(2)})` : 'Not placed';
+  const formatPoint = (point) => point ? `(${point.u.toFixed(2)}, ${point.v.toFixed(2)})` : 'Not placed';
   document.querySelector('#source-status').textContent = formatPoint(state.source);
   document.querySelector('#destination-status').textContent = formatPoint(state.destination);
   document.querySelector('#obstacle-count').textContent = `${state.obstacles.length} polygon${state.obstacles.length === 1 ? '' : 's'}`;
@@ -124,7 +132,7 @@ function pointFromEvent(event) {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObject(terrainMesh, false)[0];
-  return hit ? { x: hit.point.x, y: hit.point.z } : null;
+  return hit?.uv ? parametersFromUv(hit.uv, state) : null;
 }
 
 function cancelDraft() {
@@ -166,7 +174,7 @@ function closePolygon() {
   state.obstacles.push(state.draftObstacle.map((point) => ({ ...point })));
   state.draftObstacle = [];
   refreshAnnotations();
-  persistScene(state, DOMAIN);
+  persistScene(state);
   setStatus(`Obstacle ${state.obstacles.length} clipped to the terrain surface.`);
 }
 
@@ -185,9 +193,9 @@ function handleSurfaceClick(event) {
     if (state.mode === 'source') state.source = point;
     else state.destination = point;
     refreshAnnotations();
-    persistScene(state, DOMAIN);
+    persistScene(state);
     const label = state.mode === 'source' ? 'Source' : 'Destination';
-    setStatus(`${label} placed at (${point.x.toFixed(2)}, ${point.y.toFixed(2)}).`);
+    setStatus(`${label} placed at (${point.u.toFixed(2)}, ${point.v.toFixed(2)}).`);
     return;
   }
   state.draftObstacle.push(point);
@@ -197,12 +205,72 @@ function handleSurfaceClick(event) {
 }
 
 function syncControls() {
-  for (const key of ['amplitude', 'frequency', 'resolution']) {
-    document.querySelector(`#${key}`).value = state[key];
-    document.querySelector(`#${key}-output`).value = key === 'resolution' ? state[key] : state[key].toFixed(2);
-  }
+  document.querySelector('#resolution').value = state.resolution;
+  document.querySelector('#resolution-output').value = state.resolution;
   document.querySelector('#color-mode').value = state.colorMode;
   document.querySelector('#wireframe').checked = state.wireframe;
+  renderSurfaceControls();
+  renderSurfaceCards();
+}
+
+function renderSurfaceControls() {
+  const surface = getSurfaceDefinition(state);
+  document.querySelector('#surface-heading').textContent = surface.name;
+  const container = document.querySelector('#surface-parameter-controls');
+  container.replaceChildren();
+  for (const control of surface.controls) {
+    const label = document.createElement('label');
+    label.className = 'control-row';
+    const caption = document.createElement('span');
+    const output = document.createElement('output');
+    const value = Number(state.surfaceParams[control.key]);
+    output.value = value.toFixed(control.step < 0.1 ? 2 : 1);
+    caption.append(control.label, output);
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = control.min;
+    input.max = control.max;
+    input.step = control.step;
+    input.value = value;
+    input.addEventListener('input', () => {
+      state.surfaceParams[control.key] = Number.parseFloat(input.value);
+      output.value = state.surfaceParams[control.key].toFixed(control.step < 0.1 ? 2 : 1);
+      rebuildTerrain();
+      persistScene(state);
+    });
+    label.append(caption, input);
+    container.append(label);
+  }
+}
+
+function renderSurfaceCards() {
+  const grid = document.querySelector('#surface-card-grid');
+  grid.replaceChildren();
+  for (const surface of listSurfaces()) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `surface-card${surface.id === state.surfaceId ? ' active' : ''}`;
+    card.dataset.surfaceId = surface.id;
+    const category = document.createElement('span');
+    category.className = 'surface-card-category';
+    category.textContent = surface.category;
+    const title = document.createElement('strong');
+    title.textContent = surface.name;
+    const description = document.createElement('p');
+    description.textContent = surface.description;
+    card.append(category, title, description);
+    card.addEventListener('click', () => {
+      if (surface.id !== state.surfaceId) {
+        selectSurface(state, surface.id);
+        syncControls();
+        rebuildTerrain();
+        persistScene(state);
+        setStatus(`Switched to ${surface.name}. Query geometry was cleared.`);
+      }
+      document.querySelector('#space-dialog').close();
+    });
+    grid.append(card);
+  }
 }
 
 function applyPayload(payload) {
@@ -215,29 +283,31 @@ function applyPayload(payload) {
   if (state.destination && pointInsideAnyObstacle(state.destination, state.obstacles)) throw new Error('Destination lies inside an obstacle');
   syncControls();
   rebuildTerrain();
-  persistScene(state, DOMAIN);
+  persistScene(state);
 }
 
 function bindUI() {
   document.querySelectorAll('.mode-button').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
-  for (const key of ['amplitude', 'frequency', 'resolution']) {
-    const input = document.querySelector(`#${key}`);
-    input.addEventListener('input', () => {
-      state[key] = key === 'resolution' ? Number.parseInt(input.value, 10) : Number.parseFloat(input.value);
-      document.querySelector(`#${key}-output`).value = key === 'resolution' ? state[key] : state[key].toFixed(2);
-      rebuildTerrain();
-      persistScene(state, DOMAIN);
-    });
-  }
+  document.querySelector('#resolution').addEventListener('input', (event) => {
+    state.resolution = Number.parseInt(event.target.value, 10);
+    document.querySelector('#resolution-output').value = state.resolution;
+    rebuildTerrain();
+    persistScene(state);
+  });
+  document.querySelector('#space-config-button').addEventListener('click', () => {
+    renderSurfaceCards();
+    document.querySelector('#space-dialog').showModal();
+  });
+  document.querySelector('#space-dialog-close').addEventListener('click', () => document.querySelector('#space-dialog').close());
   document.querySelector('#color-mode').addEventListener('change', (event) => {
     state.colorMode = event.target.value;
     rebuildTerrain();
-    persistScene(state, DOMAIN);
+    persistScene(state);
   });
   document.querySelector('#wireframe').addEventListener('change', (event) => {
     state.wireframe = event.target.checked;
     terrainWire.visible = state.wireframe;
-    persistScene(state, DOMAIN);
+    persistScene(state);
   });
   document.querySelector('#close-polygon').addEventListener('click', closePolygon);
   document.querySelector('#cancel-polygon').addEventListener('click', () => {
@@ -251,7 +321,7 @@ function bindUI() {
     }
     state.obstacles.pop();
     refreshAnnotations();
-    persistScene(state, DOMAIN);
+    persistScene(state);
     setStatus('Last obstacle removed.');
   });
   document.querySelector('#clear-all').addEventListener('click', () => {
@@ -260,11 +330,11 @@ function bindUI() {
     state.obstacles = [];
     state.draftObstacle = [];
     refreshAnnotations();
-    persistScene(state, DOMAIN);
+    persistScene(state);
     setStatus('Source, destination, and all obstacles cleared.');
   });
   document.querySelector('#export-button').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(scenePayload(state, DOMAIN), null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(scenePayload(state), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -303,9 +373,9 @@ renderer.domElement.addEventListener('pointermove', (event) => {
     readout.textContent = 'Move over the surface to inspect coordinates';
     return;
   }
-  const z = surfaceHeight(point.x, point.y, state);
-  const metric = metricData(point.x, point.y, state);
-  readout.textContent = `x ${point.x.toFixed(2)} · y ${point.y.toFixed(2)} · z ${z.toFixed(2)} · √det(g) ${metric.distortion.toFixed(2)}`;
+  const position = surfacePosition(point.u, point.v, state);
+  const metric = metricData(point.u, point.v, state);
+  readout.textContent = `u ${point.u.toFixed(2)} · v ${point.v.toFixed(2)} · y ${position.y.toFixed(2)} · √det(g) ${metric.distortion.toFixed(2)}`;
 });
 
 function resize() {

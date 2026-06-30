@@ -14,6 +14,7 @@
           <h1>Riemannian Space Lab</h1>
         </div>
         <div class="header-actions">
+          <button id="space-config-button" class="button button-primary">Configure space</button>
           <button id="import-button" class="button button-ghost">Import</button>
           <button id="export-button" class="button button-ghost">Export</button>
           <input id="import-input" type="file" accept="application/json" hidden />
@@ -24,15 +25,8 @@
         <aside class="panel controls-panel">
           <section>
             <p class="section-kicker">01 · Terrain</p>
-            <h2>Shape the manifold</h2>
-            <label class="control-row">
-              <span>Amplitude <output id="amplitude-output">1.60</output></span>
-              <input id="amplitude" type="range" min="0.4" max="3" step="0.05" value="1.6" />
-            </label>
-            <label class="control-row">
-              <span>Frequency <output id="frequency-output">0.70</output></span>
-              <input id="frequency" type="range" min="0.3" max="1.5" step="0.05" value="0.7" />
-            </label>
+            <h2 id="surface-heading">Sinusoidal terrain</h2>
+            <div id="surface-parameter-controls"></div>
             <label class="control-row">
               <span>Mesh resolution <output id="resolution-output">64</output></span>
               <input id="resolution" type="range" min="24" max="120" step="8" value="64" />
@@ -122,6 +116,18 @@
           </section>
         </aside>
       </main>
+
+      <dialog id="space-dialog" class="space-dialog">
+        <div class="dialog-header">
+          <div>
+            <p class="section-kicker">Space configuration</p>
+            <h2>Choose a Riemannian surface</h2>
+          </div>
+          <button id="space-dialog-close" class="button button-ghost" aria-label="Close space configuration">Close</button>
+        </div>
+        <p class="dialog-copy">Changing the surface clears the current source, destination, and obstacles.</p>
+        <div id="surface-card-grid" class="surface-card-grid"></div>
+      </dialog>
 
       <footer class="statusbar">
         <span id="status-message">Ready. Choose a placement mode or explore the surface.</span>

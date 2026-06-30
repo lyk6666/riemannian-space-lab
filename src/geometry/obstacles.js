@@ -1,25 +1,25 @@
 import * as THREE from 'three';
-import { DOMAIN, surfaceHeight } from './surface.js';
+import { getSurfaceDomain, surfacePosition } from './surface.js';
 
 const EPSILON = 1e-8;
 
 function cross(a, b, c) {
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  return (b.u - a.u) * (c.v - a.v) - (b.v - a.v) * (c.u - a.u);
 }
 
 function polygonArea(points) {
   return points.reduce((sum, point, index) => {
     const next = points[(index + 1) % points.length];
-    return sum + point.x * next.y - next.x * point.y;
+    return sum + point.u * next.v - next.u * point.v;
   }, 0) / 2;
 }
 
-function onSegment(a, b, p) {
-  return Math.abs(cross(a, b, p)) < EPSILON
-    && p.x >= Math.min(a.x, b.x) - EPSILON
-    && p.x <= Math.max(a.x, b.x) + EPSILON
-    && p.y >= Math.min(a.y, b.y) - EPSILON
-    && p.y <= Math.max(a.y, b.y) + EPSILON;
+function onSegment(a, b, point) {
+  return Math.abs(cross(a, b, point)) < EPSILON
+    && point.u >= Math.min(a.u, b.u) - EPSILON
+    && point.u <= Math.max(a.u, b.u) + EPSILON
+    && point.v >= Math.min(a.v, b.v) - EPSILON
+    && point.v <= Math.max(a.v, b.v) + EPSILON;
 }
 
 function segmentsIntersect(a, b, c, d) {
@@ -34,7 +34,7 @@ function segmentsIntersect(a, b, c, d) {
 
 export function validateObstacle(points) {
   if (points.length < 3) return { valid: false, message: 'An obstacle needs at least three vertices.' };
-  const unique = points.filter((point, index) => points.findIndex((candidate) => Math.hypot(candidate.x - point.x, candidate.y - point.y) < 1e-4) === index);
+  const unique = points.filter((point, index) => points.findIndex((candidate) => Math.hypot(candidate.u - point.u, candidate.v - point.v) < 1e-4) === index);
   if (unique.length < 3) return { valid: false, message: 'Obstacle vertices must be distinct.' };
   if (Math.abs(polygonArea(points)) < 0.02) return { valid: false, message: 'The obstacle area is too small.' };
   for (let i = 0; i < points.length; i += 1) {
@@ -56,8 +56,8 @@ export function pointInPolygon(point, polygon) {
     const a = polygon[i];
     const b = polygon[j];
     if (onSegment(a, b, point)) return true;
-    const crosses = ((a.y > point.y) !== (b.y > point.y))
-      && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x;
+    const crosses = ((a.v > point.v) !== (b.v > point.v))
+      && point.u < ((b.u - a.u) * (point.v - a.v)) / (b.v - a.v) + a.u;
     if (crosses) inside = !inside;
   }
   return inside;
@@ -68,13 +68,13 @@ export function pointInsideAnyObstacle(point, obstacles) {
 }
 
 function lineIntersection(start, end, clipStart, clipEnd) {
-  const segment = { x: end.x - start.x, y: end.y - start.y };
-  const edge = { x: clipEnd.x - clipStart.x, y: clipEnd.y - clipStart.y };
-  const denominator = segment.x * edge.y - segment.y * edge.x;
+  const segment = { u: end.u - start.u, v: end.v - start.v };
+  const edge = { u: clipEnd.u - clipStart.u, v: clipEnd.v - clipStart.v };
+  const denominator = segment.u * edge.v - segment.v * edge.u;
   if (Math.abs(denominator) < EPSILON) return { ...end };
-  const offset = { x: clipStart.x - start.x, y: clipStart.y - start.y };
-  const t = (offset.x * edge.y - offset.y * edge.x) / denominator;
-  return { x: start.x + t * segment.x, y: start.y + t * segment.y };
+  const offset = { u: clipStart.u - start.u, v: clipStart.v - start.v };
+  const t = (offset.u * edge.v - offset.v * edge.u) / denominator;
+  return { u: start.u + t * segment.u, v: start.v + t * segment.v };
 }
 
 function clipAgainstTriangle(subject, clipTriangle) {
@@ -93,54 +93,57 @@ function clipAgainstTriangle(subject, clipTriangle) {
       if (endInside) {
         if (!startInside) output.push(lineIntersection(start, end, clipStart, clipEnd));
         output.push(end);
-      } else if (startInside) {
-        output.push(lineIntersection(start, end, clipStart, clipEnd));
-      }
+      } else if (startInside) output.push(lineIntersection(start, end, clipStart, clipEnd));
       start = end;
     }
   }
   return output;
 }
 
-function interpolateHeight(point, triangle) {
+function interpolatePosition(point, triangle) {
   const [a, b, c] = triangle;
-  const denominator = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-  const wa = ((b.y - c.y) * (point.x - c.x) + (c.x - b.x) * (point.y - c.y)) / denominator;
-  const wb = ((c.y - a.y) * (point.x - c.x) + (a.x - c.x) * (point.y - c.y)) / denominator;
-  return wa * a.height + wb * b.height + (1 - wa - wb) * c.height;
+  const denominator = (b.v - c.v) * (a.u - c.u) + (c.u - b.u) * (a.v - c.v);
+  const wa = ((b.v - c.v) * (point.u - c.u) + (c.u - b.u) * (point.v - c.v)) / denominator;
+  const wb = ((c.v - a.v) * (point.u - c.u) + (a.u - c.u) * (point.v - c.v)) / denominator;
+  return a.position.clone().multiplyScalar(wa)
+    .add(b.position.clone().multiplyScalar(wb))
+    .add(c.position.clone().multiplyScalar(1 - wa - wb));
 }
 
 function addClippedTriangle(positions, terrainTriangle, obstacleTriangle) {
-  const clipped = clipAgainstTriangle(terrainTriangle.map(({ x, y }) => ({ x, y })), obstacleTriangle);
+  const clipped = clipAgainstTriangle(terrainTriangle.map(({ u, v }) => ({ u, v })), obstacleTriangle);
   if (clipped.length < 3) return;
   for (let index = 1; index < clipped.length - 1; index += 1) {
     for (const point of [clipped[0], clipped[index], clipped[index + 1]]) {
-      positions.push(point.x, interpolateHeight(point, terrainTriangle), point.y);
+      const position = interpolatePosition(point, terrainTriangle);
+      positions.push(position.x, position.y, position.z);
     }
   }
 }
 
 export function createObstacleObject(points, config) {
-  const contour = points.map((point) => new THREE.Vector2(point.x, point.y));
+  const contour = points.map((point) => new THREE.Vector2(point.u, point.v));
   const obstacleTriangles = THREE.ShapeUtils.triangulateShape(contour, [])
     .map((triangle) => triangle.map((index) => points[index]));
-  const minX = Math.max(-DOMAIN, Math.min(...points.map((point) => point.x)));
-  const maxX = Math.min(DOMAIN, Math.max(...points.map((point) => point.x)));
-  const minY = Math.max(-DOMAIN, Math.min(...points.map((point) => point.y)));
-  const maxY = Math.min(DOMAIN, Math.max(...points.map((point) => point.y)));
+  const domain = getSurfaceDomain(config);
+  const minU = Math.max(domain.uMin, Math.min(...points.map((point) => point.u)));
+  const maxU = Math.min(domain.uMax, Math.max(...points.map((point) => point.u)));
+  const minV = Math.max(domain.vMin, Math.min(...points.map((point) => point.v)));
+  const maxV = Math.min(domain.vMax, Math.max(...points.map((point) => point.v)));
   const n = config.resolution;
-  const toCell = (value) => THREE.MathUtils.clamp(Math.floor(((value + DOMAIN) / (2 * DOMAIN)) * n), 0, n - 1);
+  const toUCell = (value) => THREE.MathUtils.clamp(Math.floor(((value - domain.uMin) / (domain.uMax - domain.uMin)) * n), 0, n - 1);
+  const toVCell = (value) => THREE.MathUtils.clamp(Math.floor(((value - domain.vMin) / (domain.vMax - domain.vMin)) * n), 0, n - 1);
   const positions = [];
-  for (let j = toCell(minY); j <= toCell(maxY); j += 1) {
-    const y0 = -DOMAIN + (2 * DOMAIN * j) / n;
-    const y1 = -DOMAIN + (2 * DOMAIN * (j + 1)) / n;
-    for (let i = toCell(minX); i <= toCell(maxX); i += 1) {
-      const x0 = -DOMAIN + (2 * DOMAIN * i) / n;
-      const x1 = -DOMAIN + (2 * DOMAIN * (i + 1)) / n;
-      const a = { x: x0, y: y0, height: surfaceHeight(x0, y0, config) };
-      const b = { x: x1, y: y0, height: surfaceHeight(x1, y0, config) };
-      const c = { x: x0, y: y1, height: surfaceHeight(x0, y1, config) };
-      const d = { x: x1, y: y1, height: surfaceHeight(x1, y1, config) };
+  for (let j = toVCell(minV); j <= toVCell(maxV); j += 1) {
+    const v0 = domain.vMin + ((domain.vMax - domain.vMin) * j) / n;
+    const v1 = domain.vMin + ((domain.vMax - domain.vMin) * (j + 1)) / n;
+    for (let i = toUCell(minU); i <= toUCell(maxU); i += 1) {
+      const u0 = domain.uMin + ((domain.uMax - domain.uMin) * i) / n;
+      const u1 = domain.uMin + ((domain.uMax - domain.uMin) * (i + 1)) / n;
+      const a = { u: u0, v: v0, position: surfacePosition(u0, v0, config) };
+      const b = { u: u1, v: v0, position: surfacePosition(u1, v0, config) };
+      const c = { u: u0, v: v1, position: surfacePosition(u0, v1, config) };
+      const d = { u: u1, v: v1, position: surfacePosition(u1, v1, config) };
       for (const obstacleTriangle of obstacleTriangles) {
         addClippedTriangle(positions, [a, c, b], obstacleTriangle);
         addClippedTriangle(positions, [b, c, d], obstacleTriangle);
@@ -150,7 +153,7 @@ export function createObstacleObject(points, config) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
-  const material = new THREE.MeshStandardMaterial({
+  return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: 0xff5147,
     emissive: 0x5a0906,
     emissiveIntensity: 0.65,
@@ -161,20 +164,14 @@ export function createObstacleObject(points, config) {
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
-  });
-  return new THREE.Mesh(geometry, material);
+  }));
 }
 
 export function createDraftLine(points, config) {
   if (!points.length) return null;
-  const vertices = points.map((point) => new THREE.Vector3(
-    point.x,
-    surfaceHeight(point.x, point.y, config) + 0.012,
-    point.y,
-  ));
+  const vertices = points.map((point) => surfacePosition(point.u, point.v, config));
   return new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(vertices),
-    new THREE.LineBasicMaterial({ color: 0xff8a83 }),
+    new THREE.LineBasicMaterial({ color: 0xff8a83, depthTest: false }),
   );
 }
-

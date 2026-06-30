@@ -63,12 +63,14 @@ The default colour map displays the local area distortion
 ```text
 src/
 ├── geometry/
-│   ├── surface.js       # surface, derivatives, metric, and terrain mesh
+│   ├── surface.js       # generic parametric metric and terrain mesh
 │   └── obstacles.js     # polygon validation and surface clipping
 ├── rendering/
 │   └── markers.js       # query markers and WebGL resource disposal
 ├── state/
 │   └── sceneState.js    # scene schema, persistence, and import state
+├── surfaces/
+│   └── registry.js      # available spaces and their parameterizations
 ├── main.js              # Three.js scene and application event wiring
 └── style.css            # application layout and visual design
 ```

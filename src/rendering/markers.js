@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { surfaceHeight } from '../geometry/surface.js';
+import { surfacePosition } from '../geometry/surface.js';
 
 function makeLabel(text, color) {
   const canvas = document.createElement('canvas');
@@ -39,7 +39,7 @@ export function createMarker(point, color, label, config) {
   const sprite = makeLabel(label, `#${new THREE.Color(color).getHexString()}`);
   sprite.position.y = 0.95;
   group.add(marker, stem, sprite);
-  group.position.set(point.x, surfaceHeight(point.x, point.y, config), point.y);
+  group.position.copy(surfacePosition(point.u, point.v, config));
   return group;
 }
 
@@ -57,4 +57,3 @@ export function disposeObject(object) {
   });
   object.removeFromParent();
 }
-
