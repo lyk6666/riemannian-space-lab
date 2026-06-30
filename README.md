@@ -11,6 +11,7 @@ An interactive browser environment for defining a shortest-path problem on a cur
 ```powershell
 pnpm install
 pnpm dev
+pnpm.cmd dev
 ```
 
 Open the local address printed by Vite, normally `http://127.0.0.1:5173`.
