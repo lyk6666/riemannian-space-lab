@@ -69,6 +69,24 @@
             </div>
           </section>
 
+          <section class="path-card">
+            <p class="section-kicker">03 · Baseline search</p>
+            <h2>Bidirectional Dijkstra</h2>
+            <p class="path-note">Computes an exact shortest path on the current obstacle-filtered mesh graph. No path index is used.</p>
+            <div class="button-row">
+              <button id="compute-path" class="button button-primary" disabled>Compute path</button>
+              <button id="clear-path" class="button button-ghost" disabled>Clear path</button>
+            </div>
+            <label class="toggle-row path-toggle">
+              <input id="show-search-fronts" type="checkbox" checked />
+              <span>Show forward/backward search fronts</span>
+            </label>
+            <div class="front-legend">
+              <span><i class="front-dot forward"></i>From source</span>
+              <span><i class="front-dot backward"></i>From target</span>
+            </div>
+          </section>
+
           <section class="metric-card">
             <p class="section-kicker">Induced metric</p>
             <div class="formula">g = J<sup>T</sup>J</div>
@@ -103,18 +121,30 @@
           </section>
 
           <section>
+            <p class="section-kicker">Path result</p>
+            <h2>Baseline query</h2>
+            <dl class="stats">
+              <div><dt>Status</dt><dd id="path-status">Not computed</dd></div>
+              <div><dt>Length</dt><dd id="path-length">—</dd></div>
+              <div><dt>Expanded</dt><dd id="path-expanded">—</dd></div>
+              <div><dt>Total time</dt><dd id="path-time">—</dd></div>
+            </dl>
+          </section>
+
+          <section>
             <p class="section-kicker">How to use</p>
             <ol class="steps">
               <li><span>1</span><p>Shape the curved terrain with the controls.</p></li>
               <li><span>2</span><p>Select <strong>Source</strong> or <strong>Destination</strong>, then click the surface.</p></li>
               <li><span>3</span><p>Select <strong>Obstacle</strong>; draw a polygon on parameterized spaces or paint faces on imported meshes.</p></li>
-              <li><span>4</span><p>Export the setup for later path-index experiments.</p></li>
+              <li><span>4</span><p>Run <strong>Bidirectional Dijkstra</strong> to compute the non-indexed baseline path.</p></li>
+              <li><span>5</span><p>Export the setup for later path-index experiments.</p></li>
             </ol>
           </section>
 
           <section class="note-card">
             <strong>Current scope</strong>
-            <p>This stage defines and visualizes the problem only. Shortest-path computation will be added separately.</p>
+            <p>The current solver searches existing mesh edges without an index. Its result is exact on the graph and approximate on the continuous surface.</p>
           </section>
         </aside>
       </main>

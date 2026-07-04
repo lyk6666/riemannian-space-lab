@@ -25,6 +25,8 @@ import {
   loadMeshUrl,
 } from './geometry/importedMesh.js';
 import { createMarker, createMarkerAtPosition, disposeObject } from './rendering/markers.js';
+import { bidirectionalDijkstra } from './pathfinding/bidirectionalDijkstra.js';
+import { buildSearchGraph } from './pathfinding/meshGraph.js';
 import {
   applyPayloadToState,
   createSceneState,
@@ -77,6 +79,10 @@ let destinationObject;
 let draftLine;
 let obstacleObjects = [];
 let faceObstacleObject;
+let pathObject;
+let forwardSearchObject;
+let backwardSearchObject;
+let lastSearch = null;
 let meshAdjacency = [];
 let pointerDown = null;
 const raycaster = new THREE.Raycaster();
@@ -84,6 +90,101 @@ const pointer = new THREE.Vector2();
 
 function setStatus(message) {
   document.querySelector('#status-message').textContent = message;
+}
+
+function updatePathStats(search = null) {
+  document.querySelector('#path-status').textContent = search
+    ? (search.result.found ? 'Path found' : 'No path')
+    : 'Not computed';
+  document.querySelector('#path-length').textContent = search?.result.found
+    ? search.result.distance.toFixed(4)
+    : '—';
+  document.querySelector('#path-expanded').textContent = search
+    ? search.result.expanded.toLocaleString()
+    : '—';
+  document.querySelector('#path-time').textContent = search
+    ? `${search.totalMs.toFixed(1)} ms`
+    : '—';
+  document.querySelector('#clear-path').disabled = !search;
+}
+
+function createSearchPointCloud(nodeIds, graph, color) {
+  const positions = [];
+  for (const nodeId of nodeIds) positions.push(...graph.nodes[nodeId].position);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const points = new THREE.Points(geometry, new THREE.PointsMaterial({
+    color,
+    size: 0.055,
+    transparent: true,
+    opacity: 0.72,
+    depthTest: false,
+    sizeAttenuation: true,
+  }));
+  points.renderOrder = 8;
+  return points;
+}
+
+function refreshSearchFronts() {
+  disposeObject(forwardSearchObject);
+  disposeObject(backwardSearchObject);
+  forwardSearchObject = null;
+  backwardSearchObject = null;
+  if (!lastSearch || !document.querySelector('#show-search-fronts').checked) return;
+  forwardSearchObject = createSearchPointCloud(lastSearch.result.visitedForward, lastSearch.graph, 0x25d0c8);
+  backwardSearchObject = createSearchPointCloud(lastSearch.result.visitedBackward, lastSearch.graph, 0xffcf5c);
+  annotationLayer.add(forwardSearchObject, backwardSearchObject);
+}
+
+function clearPath({ announce = false } = {}) {
+  disposeObject(pathObject);
+  disposeObject(forwardSearchObject);
+  disposeObject(backwardSearchObject);
+  pathObject = null;
+  forwardSearchObject = null;
+  backwardSearchObject = null;
+  lastSearch = null;
+  updatePathStats();
+  if (announce) setStatus('Computed path cleared.');
+}
+
+function computePath() {
+  if (!state.source || !state.destination) {
+    setStatus('Place both source and destination before computing a path.');
+    return;
+  }
+  clearPath();
+  try {
+    const started = performance.now();
+    const graph = buildSearchGraph(state);
+    const searchStarted = performance.now();
+    const result = bidirectionalDijkstra(graph, graph.source, graph.target);
+    const finished = performance.now();
+    lastSearch = {
+      graph,
+      result,
+      buildMs: searchStarted - started,
+      searchMs: finished - searchStarted,
+      totalMs: finished - started,
+    };
+    if (result.found) {
+      const points = result.path.map((nodeId) => new THREE.Vector3(...graph.nodes[nodeId].position));
+      pathObject = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color: 0xf8fafc, depthTest: false, linewidth: 3 }),
+      );
+      pathObject.renderOrder = 10;
+      annotationLayer.add(pathObject);
+      setStatus(`Shortest mesh-edge path found: ${result.distance.toFixed(4)} units, ${result.expanded.toLocaleString()} vertices expanded.`);
+    } else {
+      setStatus(`No collision-free mesh-edge path exists. ${result.expanded.toLocaleString()} vertices were expanded.`);
+    }
+    refreshSearchFronts();
+    updatePathStats(lastSearch);
+  } catch (error) {
+    clearPath();
+    setStatus(`Path computation failed: ${error.message}.`);
+  }
 }
 
 function updateStatusPanel() {
@@ -100,9 +201,11 @@ function updateStatusPanel() {
     : `${state.obstacles.length} polygon${state.obstacles.length === 1 ? '' : 's'}`;
   document.querySelector('#close-polygon').disabled = state.draftObstacle.length < 3;
   document.querySelector('#undo-obstacle').textContent = surface.kind === 'mesh' ? 'Clear painted faces' : 'Remove last obstacle';
+  document.querySelector('#compute-path').disabled = !state.source || !state.destination;
 }
 
 function rebuildTerrain() {
+  clearPath();
   disposeObject(terrainMesh);
   disposeObject(terrainWire);
   const surface = getSurfaceDefinition(state);
@@ -215,6 +318,7 @@ function closePolygon() {
     setStatus('The obstacle cannot contain the destination point.');
     return;
   }
+  clearPath();
   state.obstacles.push(state.draftObstacle.map((point) => ({ ...point })));
   state.draftObstacle = [];
   refreshAnnotations();
@@ -238,6 +342,7 @@ function handleSurfaceClick(event) {
     }
     const blocked = new Set(state.blockedFaces);
     const remove = patch.every((face) => blocked.has(face));
+    clearPath();
     for (const face of patch) {
       if (remove) blocked.delete(face);
       else blocked.add(face);
@@ -256,6 +361,7 @@ function handleSurfaceClick(event) {
       setStatus('Query points cannot be placed inside an obstacle.');
       return;
     }
+    clearPath();
     if (state.mode === 'source') state.source = point;
     else state.destination = point;
     refreshAnnotations();
@@ -482,6 +588,9 @@ function bindUI() {
     terrainWire.visible = state.wireframe;
     persistScene(state);
   });
+  document.querySelector('#compute-path').addEventListener('click', computePath);
+  document.querySelector('#clear-path').addEventListener('click', () => clearPath({ announce: true }));
+  document.querySelector('#show-search-fronts').addEventListener('change', refreshSearchFronts);
   document.querySelector('#close-polygon').addEventListener('click', closePolygon);
   document.querySelector('#cancel-polygon').addEventListener('click', () => {
     cancelDraft();
@@ -493,6 +602,7 @@ function bindUI() {
         setStatus('There are no painted obstacle faces to clear.');
         return;
       }
+      clearPath();
       state.blockedFaces = [];
       refreshAnnotations();
       persistScene(state);
@@ -503,12 +613,14 @@ function bindUI() {
       setStatus('There are no completed obstacles to remove.');
       return;
     }
+    clearPath();
     state.obstacles.pop();
     refreshAnnotations();
     persistScene(state);
     setStatus('Last obstacle removed.');
   });
   document.querySelector('#clear-all').addEventListener('click', () => {
+    clearPath();
     state.source = null;
     state.destination = null;
     state.obstacles = [];

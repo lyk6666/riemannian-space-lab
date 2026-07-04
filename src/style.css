@@ -90,6 +90,15 @@ select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-r
 .button-primary { border-color: var(--cyan); background: var(--cyan); color: #031313; font-weight: 700; }
 .button-danger { border-color: rgba(255,104,95,.5); color: #ff8b84; }
 
+.path-card { background: linear-gradient(145deg, rgba(124,58,237,.08), transparent); }
+.path-note { margin: -7px 0 14px; color: var(--muted); font-size: 11px; }
+.path-toggle { margin-top: 14px; line-height: 1.35; }
+.front-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font: 10px "DM Mono", monospace; }
+.front-legend span { display: flex; align-items: center; gap: 6px; }
+.front-dot { width: 7px; height: 7px; border-radius: 50%; }
+.front-dot.forward { background: var(--cyan); box-shadow: 0 0 7px var(--cyan); }
+.front-dot.backward { background: var(--yellow); box-shadow: 0 0 7px var(--yellow); }
+
 .metric-card { background: linear-gradient(145deg, rgba(37,208,200,.07), transparent); }
 .formula { margin: 14px 0 8px; font: 500 22px "DM Mono", monospace; color: #fff; }
 .metric-card p:last-child { margin-bottom: 0; color: var(--muted); font-size: 11px; }
