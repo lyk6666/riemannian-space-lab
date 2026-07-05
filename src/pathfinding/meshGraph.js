@@ -140,17 +140,16 @@ function buildParametricGraph(config) {
       addTriangle([b, c, d]);
     }
   }
-  const connectQueryPoint = (point) => {
-    const node = storage.addNode(surfacePosition(point.u, point.v, config));
+  const queryConnections = (point) => {
+    const connections = [];
     for (const cornerPoint of triangleForPoint(point, config, gridNodeIds)) {
       if (segmentBlocked(point, cornerPoint, config.obstacles)) continue;
-      storage.addEdge(node, cornerPoint.node, parametricWeight(point, cornerPoint, config));
+      connections.push({ to: cornerPoint.node, weight: parametricWeight(point, cornerPoint, config) });
     }
-    return node;
+    const position = surfacePosition(point.u, point.v, config);
+    return { position: [position.x, position.y, position.z], connections };
   };
-  const source = connectQueryPoint(config.source);
-  const target = connectQueryPoint(config.destination);
-  return { ...storage.finalize(), source, target, kind: 'parametric' };
+  return { ...storage.finalize(), queryConnections, kind: 'parametric' };
 }
 
 function vertexKey(position) {
@@ -185,30 +184,52 @@ function buildImportedMeshGraph(config) {
       storage.addEdge(a, b, euclideanDistance(storage.nodes[a].position, storage.nodes[b].position));
     }
   }
-  const connectQueryPoint = (point) => {
+  const queryConnections = (point) => {
     if (blocked.has(point.faceIndex)) throw new Error('A query point lies on a blocked face');
     const position = point.position;
-    const node = storage.addNode({ x: position[0], y: position[1], z: position[2] });
+    const connections = [];
     for (const vertex of faceVertices[point.faceIndex]) {
-      storage.addEdge(node, vertex, euclideanDistance(position, storage.nodes[vertex].position));
+      connections.push({ to: vertex, weight: euclideanDistance(position, storage.nodes[vertex].position) });
     }
-    return node;
+    return { position: [...position], connections };
   };
-  const source = connectQueryPoint(config.source);
-  const target = connectQueryPoint(config.destination);
-  return { ...storage.finalize(), source, target, kind: 'mesh' };
+  return { ...storage.finalize(), queryConnections, kind: 'mesh' };
 }
 
-export function buildSearchGraph(config) {
-  if (!config.source || !config.destination) throw new Error('Place both source and destination before computing a path');
+export function buildBaseGraph(config) {
   const surface = getSurfaceDefinition(config);
   if (surface.kind === 'mesh') {
     if (!config.meshData) throw new Error('The imported mesh is not available');
     return buildImportedMeshGraph(config);
   }
-  if (pointInsideAnyObstacle(config.source, config.obstacles)
-    || pointInsideAnyObstacle(config.destination, config.obstacles)) {
+  return buildParametricGraph(config);
+}
+
+export function attachQueryPoints(baseGraph, sourcePoint, destinationPoint, config) {
+  if (!sourcePoint || !destinationPoint) throw new Error('Place both source and destination before computing a path');
+  if (baseGraph.kind === 'parametric'
+    && (pointInsideAnyObstacle(sourcePoint, config.obstacles)
+      || pointInsideAnyObstacle(destinationPoint, config.obstacles))) {
     throw new Error('Source and destination must be outside obstacles');
   }
-  return buildParametricGraph(config);
+  const nodes = baseGraph.nodes.map((node) => ({ position: [...node.position] }));
+  const adjacency = baseGraph.adjacency.map((edges) => edges.map((edge) => ({ ...edge })));
+  const attach = (point) => {
+    const query = baseGraph.queryConnections(point);
+    const node = nodes.length;
+    nodes.push({ position: query.position });
+    adjacency.push([]);
+    for (const edge of query.connections) {
+      adjacency[node].push({ ...edge });
+      adjacency[edge.to].push({ to: node, weight: edge.weight });
+    }
+    return node;
+  };
+  const source = attach(sourcePoint);
+  const target = attach(destinationPoint);
+  return { nodes, adjacency, source, target, kind: baseGraph.kind, baseNodeCount: baseGraph.nodes.length };
+}
+
+export function buildSearchGraph(config) {
+  return attachQueryPoints(buildBaseGraph(config), config.source, config.destination, config);
 }

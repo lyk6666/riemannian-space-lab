@@ -15,9 +15,6 @@
         </div>
         <div class="header-actions">
           <button id="space-config-button" class="button button-primary">Configure space</button>
-          <button id="import-button" class="button button-ghost">Import</button>
-          <button id="export-button" class="button button-ghost">Export</button>
-          <input id="import-input" type="file" accept="application/json" hidden />
           <input id="heightmap-input" type="file" accept="image/png,image/jpeg" hidden />
           <input id="mesh-input" type="file" accept=".obj,.ply,.stl" hidden />
         </div>
@@ -31,7 +28,7 @@
             <div id="surface-parameter-controls"></div>
             <label class="control-row">
               <span>Mesh resolution <output id="resolution-output">64</output></span>
-              <input id="resolution" type="range" min="24" max="120" step="8" value="64" />
+              <input id="resolution" type="range" min="24" max="256" step="8" value="64" />
             </label>
             <label class="select-row">
               <span>Surface colour</span>
@@ -70,36 +67,41 @@
           </section>
 
           <section class="path-card">
-            <p class="section-kicker">03 · Baseline search</p>
-            <h2>Bidirectional Dijkstra</h2>
-            <p class="path-note">Computes an exact shortest path on the current obstacle-filtered mesh graph. No path index is used.</p>
+            <p class="section-kicker">03 · Path search</p>
+            <h2>Choose an algorithm</h2>
+            <label class="select-row compact-select">
+              <span>Algorithm</span>
+              <select id="algorithm-select">
+                <option value="dijkstra">Dijkstra</option>
+                <option value="bidirectional" selected>Bidirectional Dijkstra</option>
+                <option value="landmark">Landmark A*</option>
+                <option value="contraction" disabled>Contraction Hierarchies — coming later</option>
+              </select>
+            </label>
+            <div id="landmark-controls" class="index-controls">
+              <label class="control-row">
+                <span>Landmarks <output id="landmark-count-output">8</output></span>
+                <input id="landmark-count" type="range" min="4" max="32" step="4" value="8" />
+              </label>
+              <button id="build-index" class="button button-index">Build landmark index</button>
+            </div>
             <div class="button-row">
               <button id="compute-path" class="button button-primary" disabled>Compute path</button>
               <button id="clear-path" class="button button-ghost" disabled>Clear path</button>
             </div>
             <label class="toggle-row path-toggle">
               <input id="show-search-fronts" type="checkbox" checked />
-              <span>Show forward/backward search fronts</span>
+              <span>Show expanded vertices</span>
             </label>
             <div class="front-legend">
-              <span><i class="front-dot forward"></i>From source</span>
-              <span><i class="front-dot backward"></i>From target</span>
+              <span><i class="front-dot forward"></i>Forward</span>
+              <span><i class="front-dot backward"></i>Backward when applicable</span>
             </div>
-          </section>
-
-          <section class="metric-card">
-            <p class="section-kicker">Induced metric</p>
-            <div class="formula">g = J<sup>T</sup>J</div>
-            <p>For a parameterization <em>r</em>(u,v), the first fundamental form is evaluated from the local tangent vectors.</p>
           </section>
         </aside>
 
         <section class="viewport-shell">
           <div id="viewport" aria-label="Interactive three-dimensional Riemannian surface"></div>
-          <div class="viewport-overlay top-left">
-            <span class="live-indicator"></span>
-            <span>Interactive 3D</span>
-          </div>
           <div class="viewport-overlay top-right legend">
             <span><i class="legend-swatch low"></i>low distortion</span>
             <span><i class="legend-swatch high"></i>high distortion</span>
@@ -124,27 +126,23 @@
             <p class="section-kicker">Path result</p>
             <h2>Baseline query</h2>
             <dl class="stats">
+              <div><dt>Algorithm</dt><dd id="path-algorithm">—</dd></div>
               <div><dt>Status</dt><dd id="path-status">Not computed</dd></div>
               <div><dt>Length</dt><dd id="path-length">—</dd></div>
               <div><dt>Expanded</dt><dd id="path-expanded">—</dd></div>
-              <div><dt>Total time</dt><dd id="path-time">—</dd></div>
+              <div><dt>Query time</dt><dd id="path-time">—</dd></div>
             </dl>
           </section>
 
           <section>
-            <p class="section-kicker">How to use</p>
-            <ol class="steps">
-              <li><span>1</span><p>Shape the curved terrain with the controls.</p></li>
-              <li><span>2</span><p>Select <strong>Source</strong> or <strong>Destination</strong>, then click the surface.</p></li>
-              <li><span>3</span><p>Select <strong>Obstacle</strong>; draw a polygon on parameterized spaces or paint faces on imported meshes.</p></li>
-              <li><span>4</span><p>Run <strong>Bidirectional Dijkstra</strong> to compute the non-indexed baseline path.</p></li>
-              <li><span>5</span><p>Export the setup for later path-index experiments.</p></li>
-            </ol>
-          </section>
-
-          <section class="note-card">
-            <strong>Current scope</strong>
-            <p>The current solver searches existing mesh edges without an index. Its result is exact on the graph and approximate on the continuous surface.</p>
+            <p class="section-kicker">Landmark index</p>
+            <h2>Preparation status</h2>
+            <dl class="stats">
+              <div><dt>Status</dt><dd id="index-status">Not built</dd></div>
+              <div><dt>Landmarks</dt><dd id="index-landmarks">—</dd></div>
+              <div><dt>Preprocessing</dt><dd id="index-time">—</dd></div>
+              <div><dt>Memory</dt><dd id="index-memory">—</dd></div>
+            </dl>
           </section>
         </aside>
       </main>

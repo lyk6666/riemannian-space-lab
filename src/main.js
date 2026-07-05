@@ -26,13 +26,13 @@ import {
 } from './geometry/importedMesh.js';
 import { createMarker, createMarkerAtPosition, disposeObject } from './rendering/markers.js';
 import { bidirectionalDijkstra } from './pathfinding/bidirectionalDijkstra.js';
-import { buildSearchGraph } from './pathfinding/meshGraph.js';
+import { dijkstra } from './pathfinding/dijkstra.js';
+import { buildLandmarkIndex, landmarkAStar } from './pathfinding/landmarkIndex.js';
+import { attachQueryPoints, buildBaseGraph } from './pathfinding/meshGraph.js';
 import {
-  applyPayloadToState,
   createSceneState,
   persistScene,
   restoreScene,
-  scenePayload,
   selectSurface,
 } from './state/sceneState.js';
 import { listSurfaces } from './surfaces/registry.js';
@@ -82,7 +82,11 @@ let faceObstacleObject;
 let pathObject;
 let forwardSearchObject;
 let backwardSearchObject;
+let landmarkObject;
 let lastSearch = null;
+let baseGraph = null;
+let baseGraphBuildMs = 0;
+let landmarkIndex = null;
 let meshAdjacency = [];
 let pointerDown = null;
 const raycaster = new THREE.Raycaster();
@@ -92,7 +96,14 @@ function setStatus(message) {
   document.querySelector('#status-message').textContent = message;
 }
 
+const algorithmNames = {
+  dijkstra: 'Dijkstra',
+  bidirectional: 'Bidirectional Dijkstra',
+  landmark: 'Landmark A*',
+};
+
 function updatePathStats(search = null) {
+  document.querySelector('#path-algorithm').textContent = search ? algorithmNames[search.algorithm] : '—';
   document.querySelector('#path-status').textContent = search
     ? (search.result.found ? 'Path found' : 'No path')
     : 'Not computed';
@@ -106,6 +117,20 @@ function updatePathStats(search = null) {
     ? `${search.totalMs.toFixed(1)} ms`
     : '—';
   document.querySelector('#clear-path').disabled = !search;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+}
+
+function updateIndexStats() {
+  document.querySelector('#index-status').textContent = landmarkIndex ? 'Ready' : 'Not built';
+  document.querySelector('#index-landmarks').textContent = landmarkIndex ? landmarkIndex.landmarks.length : '—';
+  document.querySelector('#index-time').textContent = landmarkIndex ? `${landmarkIndex.preprocessingMs.toFixed(1)} ms` : '—';
+  document.querySelector('#index-memory').textContent = landmarkIndex ? formatBytes(landmarkIndex.memoryBytes) : '—';
+  document.querySelector('#build-index').textContent = landmarkIndex ? 'Rebuild landmark index' : 'Build landmark index';
 }
 
 function createSearchPointCloud(nodeIds, graph, color) {
@@ -123,6 +148,17 @@ function createSearchPointCloud(nodeIds, graph, color) {
   }));
   points.renderOrder = 8;
   return points;
+}
+
+function refreshLandmarks() {
+  disposeObject(landmarkObject);
+  landmarkObject = null;
+  if (!landmarkIndex || !baseGraph) return;
+  landmarkObject = createSearchPointCloud(landmarkIndex.landmarks, baseGraph, 0xa78bfa);
+  landmarkObject.material.size = 0.14;
+  landmarkObject.material.opacity = 1;
+  landmarkObject.renderOrder = 9;
+  annotationLayer.add(landmarkObject);
 }
 
 function refreshSearchFronts() {
@@ -148,23 +184,79 @@ function clearPath({ announce = false } = {}) {
   if (announce) setStatus('Computed path cleared.');
 }
 
+function clearLandmarkIndex() {
+  disposeObject(landmarkObject);
+  landmarkObject = null;
+  landmarkIndex = null;
+  updateIndexStats();
+  updateStatusPanel();
+}
+
+function invalidateGraph() {
+  clearPath();
+  clearLandmarkIndex();
+  baseGraph = null;
+  baseGraphBuildMs = 0;
+}
+
+function ensureBaseGraph() {
+  if (baseGraph) return baseGraph;
+  const started = performance.now();
+  baseGraph = buildBaseGraph(state);
+  baseGraphBuildMs = performance.now() - started;
+  return baseGraph;
+}
+
+async function buildIndex() {
+  clearPath();
+  const button = document.querySelector('#build-index');
+  button.disabled = true;
+  button.textContent = 'Building…';
+  setStatus('Building the landmark distance index…');
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const graph = ensureBaseGraph();
+    const count = Number.parseInt(document.querySelector('#landmark-count').value, 10);
+    landmarkIndex = buildLandmarkIndex(graph, count);
+    refreshLandmarks();
+    updateIndexStats();
+    updateStatusPanel();
+    setStatus(`Landmark index ready: ${landmarkIndex.landmarks.length} landmarks, ${landmarkIndex.preprocessingMs.toFixed(1)} ms preprocessing.`);
+  } catch (error) {
+    clearLandmarkIndex();
+    setStatus(`Index construction failed: ${error.message}.`);
+  } finally {
+    button.disabled = false;
+    updateIndexStats();
+  }
+}
+
 function computePath() {
   if (!state.source || !state.destination) {
     setStatus('Place both source and destination before computing a path.');
     return;
   }
+  const algorithm = document.querySelector('#algorithm-select').value;
+  if (algorithm === 'landmark' && !landmarkIndex) {
+    setStatus('Build the landmark index before running Landmark A*.');
+    return;
+  }
   clearPath();
   try {
+    const graph = attachQueryPoints(ensureBaseGraph(), state.source, state.destination, state);
     const started = performance.now();
-    const graph = buildSearchGraph(state);
-    const searchStarted = performance.now();
-    const result = bidirectionalDijkstra(graph, graph.source, graph.target);
+    let result;
+    if (algorithm === 'dijkstra') result = dijkstra(graph, graph.source, graph.target);
+    else if (algorithm === 'bidirectional') result = bidirectionalDijkstra(graph, graph.source, graph.target);
+    else if (algorithm === 'landmark') result = landmarkAStar(graph, graph.source, graph.target, landmarkIndex);
+    else throw new Error('The selected algorithm is not implemented');
     const finished = performance.now();
     lastSearch = {
       graph,
       result,
-      buildMs: searchStarted - started,
-      searchMs: finished - searchStarted,
+      algorithm,
+      buildMs: baseGraphBuildMs,
+      searchMs: finished - started,
       totalMs: finished - started,
     };
     if (result.found) {
@@ -175,7 +267,7 @@ function computePath() {
       );
       pathObject.renderOrder = 10;
       annotationLayer.add(pathObject);
-      setStatus(`Shortest mesh-edge path found: ${result.distance.toFixed(4)} units, ${result.expanded.toLocaleString()} vertices expanded.`);
+      setStatus(`${algorithmNames[algorithm]} found a shortest mesh-edge path: ${result.distance.toFixed(4)} units, ${result.expanded.toLocaleString()} vertices expanded.`);
     } else {
       setStatus(`No collision-free mesh-edge path exists. ${result.expanded.toLocaleString()} vertices were expanded.`);
     }
@@ -201,11 +293,14 @@ function updateStatusPanel() {
     : `${state.obstacles.length} polygon${state.obstacles.length === 1 ? '' : 's'}`;
   document.querySelector('#close-polygon').disabled = state.draftObstacle.length < 3;
   document.querySelector('#undo-obstacle').textContent = surface.kind === 'mesh' ? 'Clear painted faces' : 'Remove last obstacle';
-  document.querySelector('#compute-path').disabled = !state.source || !state.destination;
+  const algorithm = document.querySelector('#algorithm-select').value;
+  document.querySelector('#landmark-controls').classList.toggle('hidden', algorithm !== 'landmark');
+  if (landmarkObject) landmarkObject.visible = algorithm === 'landmark';
+  document.querySelector('#compute-path').disabled = !state.source || !state.destination || (algorithm === 'landmark' && !landmarkIndex);
 }
 
-function rebuildTerrain() {
-  clearPath();
+function rebuildTerrain({ invalidate = true } = {}) {
+  if (invalidate) invalidateGraph();
   disposeObject(terrainMesh);
   disposeObject(terrainWire);
   const surface = getSurfaceDefinition(state);
@@ -318,7 +413,7 @@ function closePolygon() {
     setStatus('The obstacle cannot contain the destination point.');
     return;
   }
-  clearPath();
+  invalidateGraph();
   state.obstacles.push(state.draftObstacle.map((point) => ({ ...point })));
   state.draftObstacle = [];
   refreshAnnotations();
@@ -342,7 +437,7 @@ function handleSurfaceClick(event) {
     }
     const blocked = new Set(state.blockedFaces);
     const remove = patch.every((face) => blocked.has(face));
-    clearPath();
+    invalidateGraph();
     for (const face of patch) {
       if (remove) blocked.delete(face);
       else blocked.add(face);
@@ -513,23 +608,6 @@ function activateMeshSurface(surfaceId, meshData) {
   persistScene(state);
 }
 
-function applyPayload(payload) {
-  applyPayloadToState(state, payload);
-  const surface = getSurfaceDefinition(state);
-  if (surface.kind === 'mesh' && !state.meshData) throw new Error('Imported scene does not contain mesh data');
-  if (surface.kind !== 'mesh') {
-    for (const polygon of state.obstacles) {
-      const validation = validateObstacleForSurface(polygon, state);
-      if (!validation.valid) throw new Error(`Invalid obstacle: ${validation.message}`);
-    }
-    if (state.source && pointInsideAnyObstacle(state.source, state.obstacles)) throw new Error('Source lies inside an obstacle');
-    if (state.destination && pointInsideAnyObstacle(state.destination, state.obstacles)) throw new Error('Destination lies inside an obstacle');
-  }
-  syncControls();
-  rebuildTerrain();
-  persistScene(state);
-}
-
 function bindUI() {
   document.querySelectorAll('.mode-button').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
   document.querySelector('#resolution').addEventListener('input', (event) => {
@@ -580,7 +658,7 @@ function bindUI() {
   });
   document.querySelector('#color-mode').addEventListener('change', (event) => {
     state.colorMode = event.target.value;
-    rebuildTerrain();
+    rebuildTerrain({ invalidate: false });
     persistScene(state);
   });
   document.querySelector('#wireframe').addEventListener('change', (event) => {
@@ -591,6 +669,17 @@ function bindUI() {
   document.querySelector('#compute-path').addEventListener('click', computePath);
   document.querySelector('#clear-path').addEventListener('click', () => clearPath({ announce: true }));
   document.querySelector('#show-search-fronts').addEventListener('change', refreshSearchFronts);
+  document.querySelector('#algorithm-select').addEventListener('change', (event) => {
+    clearPath();
+    updateStatusPanel();
+    setStatus(`${algorithmNames[event.target.value]} selected.`);
+  });
+  document.querySelector('#landmark-count').addEventListener('input', (event) => {
+    document.querySelector('#landmark-count-output').value = event.target.value;
+    clearPath();
+    clearLandmarkIndex();
+  });
+  document.querySelector('#build-index').addEventListener('click', buildIndex);
   document.querySelector('#close-polygon').addEventListener('click', closePolygon);
   document.querySelector('#cancel-polygon').addEventListener('click', () => {
     cancelDraft();
@@ -602,7 +691,7 @@ function bindUI() {
         setStatus('There are no painted obstacle faces to clear.');
         return;
       }
-      clearPath();
+      invalidateGraph();
       state.blockedFaces = [];
       refreshAnnotations();
       persistScene(state);
@@ -613,14 +702,14 @@ function bindUI() {
       setStatus('There are no completed obstacles to remove.');
       return;
     }
-    clearPath();
+    invalidateGraph();
     state.obstacles.pop();
     refreshAnnotations();
     persistScene(state);
     setStatus('Last obstacle removed.');
   });
   document.querySelector('#clear-all').addEventListener('click', () => {
-    clearPath();
+    invalidateGraph();
     state.source = null;
     state.destination = null;
     state.obstacles = [];
@@ -629,28 +718,6 @@ function bindUI() {
     refreshAnnotations();
     persistScene(state);
     setStatus('Source, destination, and all obstacles cleared.');
-  });
-  document.querySelector('#export-button').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(scenePayload(state), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'riemannian-scene.json';
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setStatus('Scene exported as riemannian-scene.json.');
-  });
-  document.querySelector('#import-button').addEventListener('click', () => document.querySelector('#import-input').click());
-  document.querySelector('#import-input').addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      applyPayload(JSON.parse(await file.text()));
-      setStatus(`Imported ${file.name}.`);
-    } catch (error) {
-      setStatus(`Import failed: ${error.message}.`);
-    }
-    event.target.value = '';
   });
 }
 

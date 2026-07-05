@@ -1,6 +1,6 @@
 # Riemannian Space Lab
 
-An interactive browser environment for defining and solving a mesh-based shortest-path problem on curved Riemannian surfaces. It supports analytical parameterizations, heightmaps, imported triangle meshes, obstacle placement, and an unindexed bidirectional-Dijkstra baseline.
+An interactive browser environment for defining and solving mesh-based shortest-path problems on curved Riemannian surfaces. It supports analytical parameterizations, heightmaps, imported triangle meshes, obstacle placement, unindexed baselines, and an ALT landmark index.
 
 ## Documentation
 
@@ -23,12 +23,12 @@ pnpm.cmd test
 
 ## Controls
 
-- Adjust amplitude, frequency, mesh resolution, and surface colour from the left panel.
+- Adjust surface parameters, mesh resolution (up to 256), and surface colour from the left panel.
 - Choose **Source** or **Destination**, then click the surface.
 - Choose **Obstacle**, click at least three vertices, then select **Close polygon**.
-- Select **Compute path** to run bidirectional Dijkstra on the current obstacle-filtered mesh graph.
-- Toggle **Show forward/backward search fronts** to inspect the explored vertices.
-- Use **Export** and **Import** to store and restore the complete setup as JSON.
+- Choose **Dijkstra**, **Bidirectional Dijkstra**, or **Landmark A*** and select **Compute path**.
+- For Landmark A*, choose the landmark count and run **Build landmark index** before querying.
+- Toggle **Show expanded vertices** to inspect the search region.
 - Drag to orbit, scroll to zoom, and right-drag to pan in navigation mode.
 
 ## Mathematical model
@@ -63,13 +63,16 @@ The default colour map displays the local area distortion
 - Multiple polygonal obstacles clipped directly to the rendered terrain triangles
 - Validation for duplicate vertices, negligible area, and self-intersecting obstacle edges
 - Protection against placing query points inside obstacles
-- Bidirectional Dijkstra with temporary source and destination graph nodes
+- Classic Dijkstra and bidirectional Dijkstra baselines
+- ALT Landmark A* with farthest-point landmark selection and reusable distance tables
+- Component-aware landmark allocation for obstacle-disconnected graphs
+- Temporary source and destination graph nodes shared by every algorithm
 - Riemannian midpoint edge weights on parameterized surfaces
 - Euclidean intrinsic edge weights on imported triangle meshes
 - Path length, expanded-vertex count, runtime, and search-front visualization
-- Local persistence and JSON import/export
+- Automatic local persistence
 
-The computed route is exact on the finite mesh graph but approximates the continuous geodesic because it is restricted to mesh edges. The graph is rebuilt for every query; no route index is used.
+All implemented algorithms return the same exact shortest path on the finite mesh graph. The route approximates the continuous geodesic because it is restricted to mesh edges. Geometry, resolution, or obstacle changes invalidate the landmark index; moving only the source or destination preserves it. Contraction Hierarchies appears in the selector as a disabled future method.
 
 ## Built-in analytical spaces
 
@@ -80,9 +83,8 @@ Periodic parameter seams are protected: obstacles must remain on one side of a
 seam so that their polygon representation stays unambiguous.
 
 The catalogue also includes a Poincaré disk with its hyperbolic metric and a
-heightmap/DEM mode. Heightmaps accept PNG or JPEG files, are downsampled to a
-maximum dimension of 128 pixels for interactive evaluation, and remain embedded
-in exported scene JSON.
+heightmap/DEM mode. Heightmaps accept PNG or JPEG files and are downsampled to a
+maximum dimension of 128 pixels for interactive evaluation.
 
 OBJ, PLY, and STL triangle meshes can be imported from the configuration modal.
 Imported meshes use connected face painting for obstacles, with a configurable
@@ -96,7 +98,9 @@ Repository is bundled as a classic benchmark; attribution is recorded in
 src/
 ├── geometry/             # surfaces, obstacles, and imported meshes
 ├── pathfinding/
+│   ├── dijkstra.js
 │   ├── bidirectionalDijkstra.js
+│   ├── landmarkIndex.js
 │   └── meshGraph.js
 ├── rendering/            # markers and WebGL resource disposal
 ├── state/                # scene schema, persistence, and import state
