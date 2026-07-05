@@ -75,7 +75,7 @@
                 <option value="dijkstra">Dijkstra</option>
                 <option value="bidirectional" selected>Bidirectional Dijkstra</option>
                 <option value="landmark">Landmark A*</option>
-                <option value="contraction" disabled>Contraction Hierarchies — coming later</option>
+                <option value="contraction">Contraction Hierarchies</option>
               </select>
             </label>
             <div id="landmark-controls" class="index-controls">
@@ -84,6 +84,15 @@
                 <input id="landmark-count" type="range" min="4" max="32" step="4" value="8" />
               </label>
               <button id="build-index" class="button button-index">Build landmark index</button>
+            </div>
+            <div id="ch-controls" class="index-controls hidden">
+              <button id="build-ch-index" class="button button-index">Build CH index</button>
+              <button id="cancel-ch-index" class="button button-ghost hidden">Cancel preprocessing</button>
+              <p class="index-hint">Exact witness searches run in a worker. High-resolution meshes can require substantial preprocessing.</p>
+              <div id="ch-progress-wrap" class="progress-wrap hidden">
+                <progress id="ch-progress" max="1" value="0"></progress>
+                <span id="ch-progress-text">Preparing graph…</span>
+              </div>
             </div>
             <div class="button-row">
               <button id="compute-path" class="button button-primary" disabled>Compute path</button>
@@ -135,11 +144,12 @@
           </section>
 
           <section>
-            <p class="section-kicker">Landmark index</p>
+            <p class="section-kicker">Preprocessing index</p>
             <h2>Preparation status</h2>
             <dl class="stats">
+              <div><dt>Type</dt><dd id="index-type">None required</dd></div>
               <div><dt>Status</dt><dd id="index-status">Not built</dd></div>
-              <div><dt>Landmarks</dt><dd id="index-landmarks">—</dd></div>
+              <div><dt id="index-size-label">Size</dt><dd id="index-size">—</dd></div>
               <div><dt>Preprocessing</dt><dd id="index-time">—</dd></div>
               <div><dt>Memory</dt><dd id="index-memory">—</dd></div>
             </dl>

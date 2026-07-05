@@ -26,6 +26,7 @@ import {
 } from './geometry/importedMesh.js';
 import { createMarker, createMarkerAtPosition, disposeObject } from './rendering/markers.js';
 import { bidirectionalDijkstra } from './pathfinding/bidirectionalDijkstra.js';
+import { contractionHierarchyQuery } from './pathfinding/contractionHierarchy.js';
 import { dijkstra } from './pathfinding/dijkstra.js';
 import { buildLandmarkIndex, landmarkAStar } from './pathfinding/landmarkIndex.js';
 import { attachQueryPoints, buildBaseGraph } from './pathfinding/meshGraph.js';
@@ -87,6 +88,9 @@ let lastSearch = null;
 let baseGraph = null;
 let baseGraphBuildMs = 0;
 let landmarkIndex = null;
+let chIndex = null;
+let chWorker = null;
+let chProgress = null;
 let meshAdjacency = [];
 let pointerDown = null;
 const raycaster = new THREE.Raycaster();
@@ -100,6 +104,7 @@ const algorithmNames = {
   dijkstra: 'Dijkstra',
   bidirectional: 'Bidirectional Dijkstra',
   landmark: 'Landmark A*',
+  contraction: 'Contraction Hierarchies',
 };
 
 function updatePathStats(search = null) {
@@ -126,11 +131,37 @@ function formatBytes(bytes) {
 }
 
 function updateIndexStats() {
-  document.querySelector('#index-status').textContent = landmarkIndex ? 'Ready' : 'Not built';
-  document.querySelector('#index-landmarks').textContent = landmarkIndex ? landmarkIndex.landmarks.length : '—';
-  document.querySelector('#index-time').textContent = landmarkIndex ? `${landmarkIndex.preprocessingMs.toFixed(1)} ms` : '—';
-  document.querySelector('#index-memory').textContent = landmarkIndex ? formatBytes(landmarkIndex.memoryBytes) : '—';
+  const algorithm = document.querySelector('#algorithm-select').value;
+  const type = document.querySelector('#index-type');
+  const status = document.querySelector('#index-status');
+  const sizeLabel = document.querySelector('#index-size-label');
+  const size = document.querySelector('#index-size');
+  const time = document.querySelector('#index-time');
+  const memory = document.querySelector('#index-memory');
+  if (algorithm === 'landmark') {
+    type.textContent = 'Landmark ALT';
+    status.textContent = landmarkIndex ? 'Ready' : 'Not built';
+    sizeLabel.textContent = 'Landmarks';
+    size.textContent = landmarkIndex ? landmarkIndex.landmarks.length : '—';
+    time.textContent = landmarkIndex ? `${landmarkIndex.preprocessingMs.toFixed(1)} ms` : '—';
+    memory.textContent = landmarkIndex ? formatBytes(landmarkIndex.memoryBytes) : '—';
+  } else if (algorithm === 'contraction') {
+    type.textContent = 'Contraction hierarchy';
+    status.textContent = chWorker ? 'Building' : (chIndex ? 'Ready' : 'Not built');
+    sizeLabel.textContent = 'Shortcuts';
+    size.textContent = chIndex ? chIndex.shortcutCount.toLocaleString() : (chProgress ? chProgress.shortcuts.toLocaleString() : '—');
+    time.textContent = chIndex ? `${chIndex.preprocessingMs.toFixed(1)} ms` : '—';
+    memory.textContent = chIndex ? formatBytes(chIndex.memoryBytes) : '—';
+  } else {
+    type.textContent = 'None required';
+    status.textContent = 'Ready';
+    sizeLabel.textContent = 'Size';
+    size.textContent = '—';
+    time.textContent = '—';
+    memory.textContent = '—';
+  }
   document.querySelector('#build-index').textContent = landmarkIndex ? 'Rebuild landmark index' : 'Build landmark index';
+  document.querySelector('#build-ch-index').textContent = chIndex ? 'Rebuild CH index' : 'Build CH index';
 }
 
 function createSearchPointCloud(nodeIds, graph, color) {
@@ -192,9 +223,23 @@ function clearLandmarkIndex() {
   updateStatusPanel();
 }
 
+function clearChIndex({ cancelled = false } = {}) {
+  if (chWorker) chWorker.terminate();
+  chWorker = null;
+  chIndex = null;
+  chProgress = null;
+  document.querySelector('#build-ch-index').disabled = false;
+  document.querySelector('#cancel-ch-index').classList.add('hidden');
+  document.querySelector('#ch-progress-wrap').classList.add('hidden');
+  updateIndexStats();
+  updateStatusPanel();
+  if (cancelled) setStatus('CH preprocessing cancelled.');
+}
+
 function invalidateGraph() {
   clearPath();
   clearLandmarkIndex();
+  clearChIndex();
   baseGraph = null;
   baseGraphBuildMs = 0;
 }
@@ -231,6 +276,60 @@ async function buildIndex() {
   }
 }
 
+function buildChIndex() {
+  clearPath();
+  clearChIndex();
+  try {
+    const graph = ensureBaseGraph();
+    const workerGraph = {
+      nodes: graph.nodes,
+      adjacency: graph.adjacency,
+    };
+    chWorker = new Worker(new URL('./workers/chWorker.js', import.meta.url), { type: 'module' });
+    document.querySelector('#build-ch-index').disabled = true;
+    document.querySelector('#cancel-ch-index').classList.remove('hidden');
+    document.querySelector('#ch-progress-wrap').classList.remove('hidden');
+    document.querySelector('#ch-progress').value = 0;
+    document.querySelector('#ch-progress-text').textContent = 'Preparing hierarchy…';
+    setStatus('Building the Contraction Hierarchies index in a background worker…');
+    updateIndexStats();
+    updateStatusPanel();
+    chWorker.addEventListener('message', (event) => {
+      if (event.data.type === 'progress') {
+        chProgress = event.data.progress;
+        const ratio = chProgress.total ? chProgress.contracted / chProgress.total : 0;
+        document.querySelector('#ch-progress').value = ratio;
+        document.querySelector('#ch-progress-text').textContent = `${chProgress.contracted.toLocaleString()} / ${chProgress.total.toLocaleString()} vertices · ${chProgress.shortcuts.toLocaleString()} shortcuts`;
+        updateIndexStats();
+      } else if (event.data.type === 'complete') {
+        chIndex = event.data.index;
+        chWorker.terminate();
+        chWorker = null;
+        chProgress = null;
+        document.querySelector('#build-ch-index').disabled = false;
+        document.querySelector('#cancel-ch-index').classList.add('hidden');
+        document.querySelector('#ch-progress-wrap').classList.add('hidden');
+        updateIndexStats();
+        updateStatusPanel();
+        setStatus(`CH index ready: ${chIndex.shortcutCount.toLocaleString()} shortcuts, ${chIndex.preprocessingMs.toFixed(1)} ms preprocessing.`);
+      } else if (event.data.type === 'error') {
+        const message = event.data.message;
+        clearChIndex();
+        setStatus(`CH preprocessing failed: ${message}.`);
+      }
+    });
+    chWorker.addEventListener('error', (event) => {
+      const message = event.message || 'worker error';
+      clearChIndex();
+      setStatus(`CH preprocessing failed: ${message}.`);
+    });
+    chWorker.postMessage({ type: 'build', graph: workerGraph });
+  } catch (error) {
+    clearChIndex();
+    setStatus(`CH preprocessing failed: ${error.message}.`);
+  }
+}
+
 function computePath() {
   if (!state.source || !state.destination) {
     setStatus('Place both source and destination before computing a path.');
@@ -241,6 +340,10 @@ function computePath() {
     setStatus('Build the landmark index before running Landmark A*.');
     return;
   }
+  if (algorithm === 'contraction' && !chIndex) {
+    setStatus('Build the CH index before running Contraction Hierarchies.');
+    return;
+  }
   clearPath();
   try {
     const graph = attachQueryPoints(ensureBaseGraph(), state.source, state.destination, state);
@@ -249,6 +352,7 @@ function computePath() {
     if (algorithm === 'dijkstra') result = dijkstra(graph, graph.source, graph.target);
     else if (algorithm === 'bidirectional') result = bidirectionalDijkstra(graph, graph.source, graph.target);
     else if (algorithm === 'landmark') result = landmarkAStar(graph, graph.source, graph.target, landmarkIndex);
+    else if (algorithm === 'contraction') result = contractionHierarchyQuery(graph, chIndex);
     else throw new Error('The selected algorithm is not implemented');
     const finished = performance.now();
     lastSearch = {
@@ -295,8 +399,11 @@ function updateStatusPanel() {
   document.querySelector('#undo-obstacle').textContent = surface.kind === 'mesh' ? 'Clear painted faces' : 'Remove last obstacle';
   const algorithm = document.querySelector('#algorithm-select').value;
   document.querySelector('#landmark-controls').classList.toggle('hidden', algorithm !== 'landmark');
+  document.querySelector('#ch-controls').classList.toggle('hidden', algorithm !== 'contraction');
   if (landmarkObject) landmarkObject.visible = algorithm === 'landmark';
-  document.querySelector('#compute-path').disabled = !state.source || !state.destination || (algorithm === 'landmark' && !landmarkIndex);
+  const missingIndex = (algorithm === 'landmark' && !landmarkIndex) || (algorithm === 'contraction' && !chIndex);
+  document.querySelector('#compute-path').disabled = !state.source || !state.destination || missingIndex;
+  updateIndexStats();
 }
 
 function rebuildTerrain({ invalidate = true } = {}) {
@@ -680,6 +787,8 @@ function bindUI() {
     clearLandmarkIndex();
   });
   document.querySelector('#build-index').addEventListener('click', buildIndex);
+  document.querySelector('#build-ch-index').addEventListener('click', buildChIndex);
+  document.querySelector('#cancel-ch-index').addEventListener('click', () => clearChIndex({ cancelled: true }));
   document.querySelector('#close-polygon').addEventListener('click', closePolygon);
   document.querySelector('#cancel-polygon').addEventListener('click', () => {
     cancelDraft();

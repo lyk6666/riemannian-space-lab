@@ -96,6 +96,11 @@ select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-r
 .index-controls .control-row { margin: 0 0 12px; }
 .button-index { width: 100%; border-color: rgba(167,139,250,.55); color: #c4b5fd; }
 .button-index:hover { border-color: #a78bfa; }
+.index-controls > .button + .button { margin-top: 8px; width: 100%; }
+.index-hint { margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.progress-wrap { margin-top: 12px; }
+.progress-wrap progress { display: block; width: 100%; height: 6px; accent-color: #a78bfa; }
+.progress-wrap span { display: block; margin-top: 7px; color: var(--muted); font: 9px "DM Mono", monospace; }
 .path-toggle { margin-top: 14px; line-height: 1.35; }
 .front-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font: 10px "DM Mono", monospace; }
 .front-legend span { display: flex; align-items: center; gap: 6px; }

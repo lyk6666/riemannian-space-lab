@@ -1,6 +1,6 @@
 # Riemannian Space Lab
 
-An interactive browser environment for defining and solving mesh-based shortest-path problems on curved Riemannian surfaces. It supports analytical parameterizations, heightmaps, imported triangle meshes, obstacle placement, unindexed baselines, and an ALT landmark index.
+An interactive browser environment for defining and solving mesh-based shortest-path problems on curved Riemannian surfaces. It supports analytical parameterizations, heightmaps, imported triangle meshes, obstacle placement, unindexed baselines, ALT landmarks, and Contraction Hierarchies.
 
 ## Documentation
 
@@ -26,8 +26,9 @@ pnpm.cmd test
 - Adjust surface parameters, mesh resolution (up to 256), and surface colour from the left panel.
 - Choose **Source** or **Destination**, then click the surface.
 - Choose **Obstacle**, click at least three vertices, then select **Close polygon**.
-- Choose **Dijkstra**, **Bidirectional Dijkstra**, or **Landmark A*** and select **Compute path**.
+- Choose **Dijkstra**, **Bidirectional Dijkstra**, **Landmark A***, or **Contraction Hierarchies** and select **Compute path**.
 - For Landmark A*, choose the landmark count and run **Build landmark index** before querying.
+- For Contraction Hierarchies, run **Build CH index** and monitor or cancel background preprocessing.
 - Toggle **Show expanded vertices** to inspect the search region.
 - Drag to orbit, scroll to zoom, and right-drag to pan in navigation mode.
 
@@ -66,13 +67,15 @@ The default colour map displays the local area distortion
 - Classic Dijkstra and bidirectional Dijkstra baselines
 - ALT Landmark A* with farthest-point landmark selection and reusable distance tables
 - Component-aware landmark allocation for obstacle-disconnected graphs
+- Exact Contraction Hierarchies with bounded witness searches and shortcut unpacking
+- Background-worker CH preprocessing with progress and cancellation
 - Temporary source and destination graph nodes shared by every algorithm
 - Riemannian midpoint edge weights on parameterized surfaces
 - Euclidean intrinsic edge weights on imported triangle meshes
 - Path length, expanded-vertex count, runtime, and search-front visualization
 - Automatic local persistence
 
-All implemented algorithms return the same exact shortest path on the finite mesh graph. The route approximates the continuous geodesic because it is restricted to mesh edges. Geometry, resolution, or obstacle changes invalidate the landmark index; moving only the source or destination preserves it. Contraction Hierarchies appears in the selector as a disabled future method.
+All implemented algorithms return the same exact shortest path on the finite mesh graph. The route approximates the continuous geodesic because it is restricted to mesh edges. Geometry, resolution, or obstacle changes invalidate both indexes; moving only the source or destination preserves them. Arbitrary query points are handled exactly by evaluating their triangle-vertex connectors against the preprocessed hierarchy.
 
 ## Built-in analytical spaces
 
@@ -100,8 +103,11 @@ src/
 ├── pathfinding/
 │   ├── dijkstra.js
 │   ├── bidirectionalDijkstra.js
+│   ├── contractionHierarchy.js
 │   ├── landmarkIndex.js
 │   └── meshGraph.js
+├── workers/
+│   └── chWorker.js
 ├── rendering/            # markers and WebGL resource disposal
 ├── state/                # scene schema, persistence, and import state
 ├── surfaces/             # available spaces and parameterizations
