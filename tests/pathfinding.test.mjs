@@ -229,6 +229,29 @@ test('nested-dissection cuts periodic seams and remains exact on a torus', () =>
   assert.ok(Math.abs(actual.distance - expected.distance) < 1e-8);
 });
 
+test('preprocessed indexes are reusable when source and destination change', () => {
+  const state = createSceneState();
+  state.resolution = 16;
+  const baseGraph = buildBaseGraph(state);
+  const landmarkIndex = buildLandmarkIndex(baseGraph, 4);
+  const chIndex = buildContractionHierarchy(baseGraph);
+  const separatorIndex = buildNestedDissectionHierarchy(baseGraph, { leafSize: 4 });
+  const queries = [
+    [{ u: -5, v: -2 }, { u: 4.5, v: 2 }],
+    [{ u: -3.5, v: 2.4 }, { u: 5.2, v: -1.7 }],
+  ];
+  for (const [source, destination] of queries) {
+    const graph = attachQueryPoints(baseGraph, source, destination, state);
+    const expected = dijkstra(graph, graph.source, graph.target);
+    const landmark = landmarkAStar(graph, graph.source, graph.target, landmarkIndex);
+    const standardCh = contractionHierarchyQuery(graph, chIndex);
+    const separatorCh = contractionHierarchyQuery(graph, separatorIndex);
+    assert.ok(Math.abs(landmark.distance - expected.distance) < 1e-8);
+    assert.ok(Math.abs(standardCh.distance - expected.distance) < 1e-8);
+    assert.ok(Math.abs(separatorCh.distance - expected.distance) < 1e-8);
+  }
+});
+
 test('periodic surfaces connect matching seam vertices', () => {
   const state = createSceneState();
   selectSurface(state, 'torus');

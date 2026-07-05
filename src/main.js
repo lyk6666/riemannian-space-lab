@@ -270,6 +270,17 @@ function clearPath({ announce = false } = {}) {
   if (announce) setStatus('Computed path cleared.');
 }
 
+function hasPreprocessingIndex() {
+  return Boolean(landmarkIndex || chIndex || separatorChIndex);
+}
+
+function updateQueryPoint(kind, point) {
+  clearPath();
+  state[kind] = point;
+  refreshAnnotations();
+  persistScene(state);
+}
+
 function clearLandmarkIndex() {
   disposeObject(landmarkObject);
   landmarkObject = null;
@@ -644,15 +655,14 @@ function handleSurfaceClick(event) {
       setStatus('Query points cannot be placed inside an obstacle.');
       return;
     }
-    clearPath();
-    if (state.mode === 'source') state.source = point;
-    else state.destination = point;
-    refreshAnnotations();
-    persistScene(state);
+    const retainedPreprocessing = hasPreprocessingIndex();
+    const queryPointKind = state.mode === 'source' ? 'source' : 'destination';
+    updateQueryPoint(queryPointKind, point);
     const label = state.mode === 'source' ? 'Source' : 'Destination';
-    setStatus(meshMode
+    const placementMessage = meshMode
       ? `${label} placed on mesh face ${point.faceIndex}.`
-      : `${label} placed at (${point.u.toFixed(2)}, ${point.v.toFixed(2)}).`);
+      : `${label} placed at (${point.u.toFixed(2)}, ${point.v.toFixed(2)}).`;
+    setStatus(`${placementMessage}${retainedPreprocessing ? ' Preprocessing indexes retained.' : ''}`);
     return;
   }
   if (meshMode) return;
