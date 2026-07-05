@@ -149,7 +149,18 @@ function buildParametricGraph(config) {
     const position = surfacePosition(point.u, point.v, config);
     return { position: [position.x, position.y, position.z], connections };
   };
-  return { ...storage.finalize(), queryConnections, kind: 'parametric' };
+  return {
+    ...storage.finalize(),
+    queryConnections,
+    kind: 'parametric',
+    partition: {
+      type: 'uniform-grid',
+      resolution: n,
+      gridNodeIds,
+      uPeriodic: Boolean(domain.uPeriodic),
+      vPeriodic: Boolean(domain.vPeriodic),
+    },
+  };
 }
 
 function vertexKey(position) {
@@ -193,7 +204,7 @@ function buildImportedMeshGraph(config) {
     }
     return { position: [...position], connections };
   };
-  return { ...storage.finalize(), queryConnections, kind: 'mesh' };
+  return { ...storage.finalize(), queryConnections, kind: 'mesh', partition: null };
 }
 
 export function buildBaseGraph(config) {

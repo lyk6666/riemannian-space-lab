@@ -146,22 +146,32 @@ export function buildContractionHierarchy(baseGraph, options = {}) {
   const priorities = new Float64Array(count);
   const queue = new MinPriorityQueue();
   const workspace = new WitnessWorkspace(count);
+  const suppliedOrder = options.order ? Array.from(options.order) : null;
   let shortcutCount = 0;
 
-  for (let node = 0; node < count; node += 1) {
-    priorities[node] = contractionPriority(mutable, contracted, contractedNeighbors, levels, node);
-    queue.push(node, priorities[node]);
+  if (suppliedOrder) {
+    if (suppliedOrder.length !== count || new Set(suppliedOrder).size !== count
+      || suppliedOrder.some((node) => !Number.isInteger(node) || node < 0 || node >= count)) {
+      throw new Error('The supplied CH contraction order is not a vertex permutation');
+    }
+  } else {
+    for (let node = 0; node < count; node += 1) {
+      priorities[node] = contractionPriority(mutable, contracted, contractedNeighbors, levels, node);
+      queue.push(node, priorities[node]);
+    }
   }
 
   for (let rank = 0; rank < count; rank += 1) {
-    let node = -1;
-    while (queue.size) {
-      const item = queue.pop();
-      if (contracted[item.node] || item.priority !== priorities[item.node]) continue;
-      node = item.node;
-      break;
+    let node = suppliedOrder ? suppliedOrder[rank] : -1;
+    if (!suppliedOrder) {
+      while (queue.size) {
+        const item = queue.pop();
+        if (contracted[item.node] || item.priority !== priorities[item.node]) continue;
+        node = item.node;
+        break;
+      }
+      if (node === -1) throw new Error('CH priority queue became empty before all vertices were contracted');
     }
-    if (node === -1) throw new Error('CH priority queue became empty before all vertices were contracted');
     if (options.isCancelled?.()) throw new Error('CH preprocessing cancelled');
     const result = contractNode(mutable, contracted, node, workspace, options.isCancelled);
     shortcutCount += result.shortcutsAdded;
@@ -171,8 +181,10 @@ export function buildContractionHierarchy(baseGraph, options = {}) {
       if (contracted[neighbor]) continue;
       contractedNeighbors[neighbor] += 1;
       levels[neighbor] = Math.max(levels[neighbor], levels[node] + 1);
-      priorities[neighbor] = contractionPriority(mutable, contracted, contractedNeighbors, levels, neighbor);
-      queue.push(neighbor, priorities[neighbor]);
+      if (!suppliedOrder) {
+        priorities[neighbor] = contractionPriority(mutable, contracted, contractedNeighbors, levels, neighbor);
+        queue.push(neighbor, priorities[neighbor]);
+      }
     }
     if (rank % 128 === 0 || rank === count - 1) {
       options.onProgress?.({ contracted: rank + 1, total: count, shortcuts: shortcutCount });
@@ -200,6 +212,7 @@ export function buildContractionHierarchy(baseGraph, options = {}) {
     activeEdges,
     preprocessingMs: performance.now() - started,
     memoryBytes: ranks.byteLength + activeEdges * 32 + mutable.edges.length * 48,
+    ordering: suppliedOrder ? 'supplied' : 'edge-difference',
   };
 }
 

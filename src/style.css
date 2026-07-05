@@ -98,6 +98,7 @@ select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-r
 .button-index:hover { border-color: #a78bfa; }
 .index-controls > .button + .button { margin-top: 8px; width: 100%; }
 .index-hint { margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.partition-toggle { margin: 0 0 12px; }
 .progress-wrap { margin-top: 12px; }
 .progress-wrap progress { display: block; width: 100%; height: 6px; accent-color: #a78bfa; }
 .progress-wrap span { display: block; margin-top: 7px; color: var(--muted); font: 9px "DM Mono", monospace; }

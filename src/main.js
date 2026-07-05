@@ -89,8 +89,11 @@ let baseGraph = null;
 let baseGraphBuildMs = 0;
 let landmarkIndex = null;
 let chIndex = null;
+let separatorChIndex = null;
 let chWorker = null;
 let chProgress = null;
+let chBuildAlgorithm = null;
+let partitionObject = null;
 let meshAdjacency = [];
 let pointerDown = null;
 const raycaster = new THREE.Raycaster();
@@ -105,7 +108,16 @@ const algorithmNames = {
   bidirectional: 'Bidirectional Dijkstra',
   landmark: 'Landmark A*',
   contraction: 'Contraction Hierarchies',
+  separator: 'Separator-order CH',
 };
+
+function isChAlgorithm(algorithm) {
+  return algorithm === 'contraction' || algorithm === 'separator';
+}
+
+function activeChIndex(algorithm = document.querySelector('#algorithm-select').value) {
+  return algorithm === 'separator' ? separatorChIndex : chIndex;
+}
 
 function updatePathStats(search = null) {
   document.querySelector('#path-algorithm').textContent = search ? algorithmNames[search.algorithm] : '—';
@@ -145,13 +157,19 @@ function updateIndexStats() {
     size.textContent = landmarkIndex ? landmarkIndex.landmarks.length : '—';
     time.textContent = landmarkIndex ? `${landmarkIndex.preprocessingMs.toFixed(1)} ms` : '—';
     memory.textContent = landmarkIndex ? formatBytes(landmarkIndex.memoryBytes) : '—';
-  } else if (algorithm === 'contraction') {
-    type.textContent = 'Contraction hierarchy';
-    status.textContent = chWorker ? 'Building' : (chIndex ? 'Ready' : 'Not built');
-    sizeLabel.textContent = 'Shortcuts';
-    size.textContent = chIndex ? chIndex.shortcutCount.toLocaleString() : (chProgress ? chProgress.shortcuts.toLocaleString() : '—');
-    time.textContent = chIndex ? `${chIndex.preprocessingMs.toFixed(1)} ms` : '—';
-    memory.textContent = chIndex ? formatBytes(chIndex.memoryBytes) : '—';
+  } else if (isChAlgorithm(algorithm)) {
+    const index = activeChIndex(algorithm);
+    const building = chWorker && chBuildAlgorithm === algorithm;
+    type.textContent = algorithm === 'separator'
+      ? (index?.fallback ? 'Standard CH fallback' : 'Nested-dissection CH')
+      : 'Contraction hierarchy';
+    status.textContent = building ? 'Building' : (index ? 'Ready' : 'Not built');
+    sizeLabel.textContent = algorithm === 'separator' && index && !index.fallback ? 'Regions / shortcuts' : 'Shortcuts';
+    size.textContent = algorithm === 'separator' && index && !index.fallback
+      ? `${index.regionCount.toLocaleString()} / ${index.shortcutCount.toLocaleString()}`
+      : (index ? index.shortcutCount.toLocaleString() : (building && chProgress ? chProgress.shortcuts.toLocaleString() : '—'));
+    time.textContent = index ? `${index.preprocessingMs.toFixed(1)} ms` : '—';
+    memory.textContent = index ? formatBytes(index.memoryBytes) : '—';
   } else {
     type.textContent = 'None required';
     status.textContent = 'Ready';
@@ -161,7 +179,9 @@ function updateIndexStats() {
     memory.textContent = '—';
   }
   document.querySelector('#build-index').textContent = landmarkIndex ? 'Rebuild landmark index' : 'Build landmark index';
-  document.querySelector('#build-ch-index').textContent = chIndex ? 'Rebuild CH index' : 'Build CH index';
+  const selectedChIndex = isChAlgorithm(algorithm) ? activeChIndex(algorithm) : null;
+  const chLabel = algorithm === 'separator' ? 'separator CH index' : 'CH index';
+  document.querySelector('#build-ch-index').textContent = `${selectedChIndex ? 'Rebuild' : 'Build'} ${chLabel}`;
 }
 
 function createSearchPointCloud(nodeIds, graph, color) {
@@ -190,6 +210,41 @@ function refreshLandmarks() {
   landmarkObject.material.opacity = 1;
   landmarkObject.renderOrder = 9;
   annotationLayer.add(landmarkObject);
+}
+
+function refreshPartitionVisualization() {
+  disposeObject(partitionObject);
+  partitionObject = null;
+  if (!separatorChIndex?.regionOfNode || !baseGraph || separatorChIndex.fallback) return;
+  const positions = [];
+  const colors = [];
+  const color = new THREE.Color();
+  for (let node = 0; node < baseGraph.nodes.length; node += 1) {
+    positions.push(...baseGraph.nodes[node].position);
+    const separatorLevel = separatorChIndex.separatorLevel[node];
+    if (separatorLevel >= 0) {
+      color.setHSL(0.78, 0.8, Math.max(0.58, 0.82 - separatorLevel * 0.06));
+    } else {
+      const region = separatorChIndex.regionOfNode[node];
+      color.setHSL(((region * 0.61803398875) % 1 + 1) % 1, 0.72, 0.54);
+    }
+    colors.push(color.r, color.g, color.b);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  partitionObject = new THREE.Points(geometry, new THREE.PointsMaterial({
+    vertexColors: true,
+    size: 0.075,
+    transparent: true,
+    opacity: 0.92,
+    depthTest: false,
+    sizeAttenuation: true,
+  }));
+  partitionObject.renderOrder = 7;
+  partitionObject.visible = document.querySelector('#algorithm-select').value === 'separator'
+    && document.querySelector('#show-partition').checked;
+  annotationLayer.add(partitionObject);
 }
 
 function refreshSearchFronts() {
@@ -223,10 +278,16 @@ function clearLandmarkIndex() {
   updateStatusPanel();
 }
 
-function clearChIndex({ cancelled = false } = {}) {
+function clearChIndex({ cancelled = false, algorithm = null } = {}) {
   if (chWorker) chWorker.terminate();
   chWorker = null;
-  chIndex = null;
+  chBuildAlgorithm = null;
+  if (!algorithm || algorithm === 'contraction') chIndex = null;
+  if (!algorithm || algorithm === 'separator') {
+    separatorChIndex = null;
+    disposeObject(partitionObject);
+    partitionObject = null;
+  }
   chProgress = null;
   document.querySelector('#build-ch-index').disabled = false;
   document.querySelector('#cancel-ch-index').classList.add('hidden');
@@ -278,20 +339,25 @@ async function buildIndex() {
 
 function buildChIndex() {
   clearPath();
-  clearChIndex();
+  const algorithm = document.querySelector('#algorithm-select').value;
+  clearChIndex({ algorithm });
   try {
     const graph = ensureBaseGraph();
     const workerGraph = {
       nodes: graph.nodes,
       adjacency: graph.adjacency,
+      partition: graph.partition,
     };
+    const ordering = algorithm === 'separator' ? 'nested-dissection' : 'standard';
+    const leafSize = Number.parseInt(document.querySelector('#separator-leaf-size').value, 10);
+    chBuildAlgorithm = algorithm;
     chWorker = new Worker(new URL('./workers/chWorker.js', import.meta.url), { type: 'module' });
     document.querySelector('#build-ch-index').disabled = true;
     document.querySelector('#cancel-ch-index').classList.remove('hidden');
     document.querySelector('#ch-progress-wrap').classList.remove('hidden');
     document.querySelector('#ch-progress').value = 0;
     document.querySelector('#ch-progress-text').textContent = 'Preparing hierarchy…';
-    setStatus('Building the Contraction Hierarchies index in a background worker…');
+    setStatus(`Building the ${algorithmNames[algorithm]} index in a background worker…`);
     updateIndexStats();
     updateStatusPanel();
     chWorker.addEventListener('message', (event) => {
@@ -302,30 +368,39 @@ function buildChIndex() {
         document.querySelector('#ch-progress-text').textContent = `${chProgress.contracted.toLocaleString()} / ${chProgress.total.toLocaleString()} vertices · ${chProgress.shortcuts.toLocaleString()} shortcuts`;
         updateIndexStats();
       } else if (event.data.type === 'complete') {
-        chIndex = event.data.index;
+        const completedIndex = event.data.index;
+        if (algorithm === 'separator') separatorChIndex = completedIndex;
+        else chIndex = completedIndex;
         chWorker.terminate();
         chWorker = null;
+        chBuildAlgorithm = null;
         chProgress = null;
         document.querySelector('#build-ch-index').disabled = false;
         document.querySelector('#cancel-ch-index').classList.add('hidden');
         document.querySelector('#ch-progress-wrap').classList.add('hidden');
+        if (algorithm === 'separator') refreshPartitionVisualization();
         updateIndexStats();
         updateStatusPanel();
-        setStatus(`CH index ready: ${chIndex.shortcutCount.toLocaleString()} shortcuts, ${chIndex.preprocessingMs.toFixed(1)} ms preprocessing.`);
+        if (completedIndex.fallback) {
+          setStatus(`Separator ordering requires a uniform parameter grid. A standard exact CH index was built for this imported mesh instead.`);
+        } else {
+          const regionSummary = algorithm === 'separator' ? `, ${completedIndex.regionCount.toLocaleString()} leaf regions` : '';
+          setStatus(`${algorithmNames[algorithm]} index ready: ${completedIndex.shortcutCount.toLocaleString()} shortcuts${regionSummary}, ${completedIndex.preprocessingMs.toFixed(1)} ms preprocessing.`);
+        }
       } else if (event.data.type === 'error') {
         const message = event.data.message;
-        clearChIndex();
+        clearChIndex({ algorithm });
         setStatus(`CH preprocessing failed: ${message}.`);
       }
     });
     chWorker.addEventListener('error', (event) => {
       const message = event.message || 'worker error';
-      clearChIndex();
+      clearChIndex({ algorithm });
       setStatus(`CH preprocessing failed: ${message}.`);
     });
-    chWorker.postMessage({ type: 'build', graph: workerGraph });
+    chWorker.postMessage({ type: 'build', graph: workerGraph, ordering, leafSize });
   } catch (error) {
-    clearChIndex();
+    clearChIndex({ algorithm });
     setStatus(`CH preprocessing failed: ${error.message}.`);
   }
 }
@@ -340,8 +415,8 @@ function computePath() {
     setStatus('Build the landmark index before running Landmark A*.');
     return;
   }
-  if (algorithm === 'contraction' && !chIndex) {
-    setStatus('Build the CH index before running Contraction Hierarchies.');
+  if (isChAlgorithm(algorithm) && !activeChIndex(algorithm)) {
+    setStatus(`Build the ${algorithmNames[algorithm]} index before running it.`);
     return;
   }
   clearPath();
@@ -352,7 +427,7 @@ function computePath() {
     if (algorithm === 'dijkstra') result = dijkstra(graph, graph.source, graph.target);
     else if (algorithm === 'bidirectional') result = bidirectionalDijkstra(graph, graph.source, graph.target);
     else if (algorithm === 'landmark') result = landmarkAStar(graph, graph.source, graph.target, landmarkIndex);
-    else if (algorithm === 'contraction') result = contractionHierarchyQuery(graph, chIndex);
+    else if (isChAlgorithm(algorithm)) result = contractionHierarchyQuery(graph, activeChIndex(algorithm));
     else throw new Error('The selected algorithm is not implemented');
     const finished = performance.now();
     lastSearch = {
@@ -399,10 +474,16 @@ function updateStatusPanel() {
   document.querySelector('#undo-obstacle').textContent = surface.kind === 'mesh' ? 'Clear painted faces' : 'Remove last obstacle';
   const algorithm = document.querySelector('#algorithm-select').value;
   document.querySelector('#landmark-controls').classList.toggle('hidden', algorithm !== 'landmark');
-  document.querySelector('#ch-controls').classList.toggle('hidden', algorithm !== 'contraction');
+  document.querySelector('#ch-controls').classList.toggle('hidden', !isChAlgorithm(algorithm));
+  document.querySelector('#separator-options').classList.toggle('hidden', algorithm !== 'separator');
   if (landmarkObject) landmarkObject.visible = algorithm === 'landmark';
-  const missingIndex = (algorithm === 'landmark' && !landmarkIndex) || (algorithm === 'contraction' && !chIndex);
+  if (partitionObject) {
+    partitionObject.visible = algorithm === 'separator' && document.querySelector('#show-partition').checked;
+  }
+  const missingIndex = (algorithm === 'landmark' && !landmarkIndex)
+    || (isChAlgorithm(algorithm) && !activeChIndex(algorithm));
   document.querySelector('#compute-path').disabled = !state.source || !state.destination || missingIndex;
+  document.querySelector('#build-ch-index').disabled = Boolean(chWorker);
   updateIndexStats();
 }
 
@@ -788,7 +869,16 @@ function bindUI() {
   });
   document.querySelector('#build-index').addEventListener('click', buildIndex);
   document.querySelector('#build-ch-index').addEventListener('click', buildChIndex);
-  document.querySelector('#cancel-ch-index').addEventListener('click', () => clearChIndex({ cancelled: true }));
+  document.querySelector('#cancel-ch-index').addEventListener('click', () => clearChIndex({
+    cancelled: true,
+    algorithm: chBuildAlgorithm,
+  }));
+  document.querySelector('#separator-leaf-size').addEventListener('change', () => {
+    clearPath();
+    clearChIndex({ algorithm: 'separator' });
+    setStatus('Separator leaf size changed. Rebuild the separator-order CH index.');
+  });
+  document.querySelector('#show-partition').addEventListener('change', updateStatusPanel);
   document.querySelector('#close-polygon').addEventListener('click', closePolygon);
   document.querySelector('#cancel-polygon').addEventListener('click', () => {
     cancelDraft();

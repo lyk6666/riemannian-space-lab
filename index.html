@@ -76,6 +76,7 @@
                 <option value="bidirectional" selected>Bidirectional Dijkstra</option>
                 <option value="landmark">Landmark A*</option>
                 <option value="contraction">Contraction Hierarchies</option>
+                <option value="separator">Separator-order CH</option>
               </select>
             </label>
             <div id="landmark-controls" class="index-controls">
@@ -86,6 +87,21 @@
               <button id="build-index" class="button button-index">Build landmark index</button>
             </div>
             <div id="ch-controls" class="index-controls hidden">
+              <div id="separator-options" class="hidden">
+                <label class="select-row compact-select">
+                  <span>Leaf area size</span>
+                  <select id="separator-leaf-size">
+                    <option value="8">8 × 8 cells</option>
+                    <option value="16" selected>16 × 16 cells</option>
+                    <option value="32">32 × 32 cells</option>
+                    <option value="64">64 × 64 cells</option>
+                  </select>
+                </label>
+                <label class="toggle-row partition-toggle">
+                  <input id="show-partition" type="checkbox" checked />
+                  <span>Show regions and separators</span>
+                </label>
+              </div>
               <button id="build-ch-index" class="button button-index">Build CH index</button>
               <button id="cancel-ch-index" class="button button-ghost hidden">Cancel preprocessing</button>
               <p class="index-hint">Exact witness searches run in a worker. High-resolution meshes can require substantial preprocessing.</p>

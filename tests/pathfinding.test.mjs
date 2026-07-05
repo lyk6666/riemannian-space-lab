@@ -5,6 +5,7 @@ import { buildContractionHierarchy, contractionHierarchyQuery } from '../src/pat
 import { dijkstra, dijkstraDistances } from '../src/pathfinding/dijkstra.js';
 import { buildLandmarkIndex, createLandmarkHeuristic, landmarkAStar } from '../src/pathfinding/landmarkIndex.js';
 import { attachQueryPoints, buildBaseGraph, buildSearchGraph } from '../src/pathfinding/meshGraph.js';
+import { buildNestedDissectionHierarchy, createNestedDissectionOrder } from '../src/pathfinding/nestedDissection.js';
 import { createSceneState, selectSurface } from '../src/state/sceneState.js';
 
 function undirectedGraph(nodeCount, edges) {
@@ -160,6 +161,68 @@ test('Contraction Hierarchies supports arbitrary surface query points and obstac
   const baseGraph = buildBaseGraph(state);
   const graph = attachQueryPoints(baseGraph, state.source, state.destination, state);
   const index = buildContractionHierarchy(baseGraph);
+  const expected = dijkstra(graph, graph.source, graph.target);
+  const actual = contractionHierarchyQuery(graph, index);
+  assert.equal(actual.found, true);
+  assert.ok(Math.abs(actual.distance - expected.distance) < 1e-8);
+});
+
+test('nested-dissection order is a separator-last permutation on uniform grids', () => {
+  const state = createSceneState();
+  state.resolution = 20;
+  const baseGraph = buildBaseGraph(state);
+  const partition = createNestedDissectionOrder(baseGraph, 5);
+  assert.equal(partition.order.length, baseGraph.nodes.length);
+  assert.equal(new Set(partition.order).size, baseGraph.nodes.length);
+  assert.ok(partition.regionCount > 1);
+  assert.ok(partition.separatorCount > 0);
+  const ranks = new Int32Array(baseGraph.nodes.length);
+  partition.order.forEach((node, rank) => { ranks[node] = rank; });
+  const rootSeparators = [...partition.separatorLevel.keys()].filter((node) => partition.separatorLevel[node] === 0);
+  const nonRoot = [...partition.separatorLevel.keys()].filter((node) => partition.separatorLevel[node] !== 0);
+  assert.ok(Math.min(...rootSeparators.map((node) => ranks[node])) > Math.max(...nonRoot.map((node) => ranks[node])));
+});
+
+test('nested-dissection CH remains exact for obstacle-aware surface queries', () => {
+  const state = createSceneState();
+  state.resolution = 20;
+  state.source = { u: -5.2, v: -1.8 };
+  state.destination = { u: 4.7, v: 2.3 };
+  state.obstacles = [[
+    { u: -1.3, v: -2 },
+    { u: 1.2, v: -2 },
+    { u: 1.2, v: 1.5 },
+    { u: -1.3, v: 1.5 },
+  ]];
+  const baseGraph = buildBaseGraph(state);
+  const graph = attachQueryPoints(baseGraph, state.source, state.destination, state);
+  const index = buildNestedDissectionHierarchy(baseGraph, { leafSize: 5 });
+  const expected = dijkstra(graph, graph.source, graph.target);
+  const actual = contractionHierarchyQuery(graph, index);
+  assert.equal(index.ordering, 'nested-dissection');
+  assert.equal(actual.found, true);
+  assert.ok(Math.abs(actual.distance - expected.distance) < 1e-8);
+});
+
+test('nested-dissection cuts periodic seams and remains exact on a torus', () => {
+  const state = createSceneState();
+  selectSurface(state, 'torus');
+  state.resolution = 16;
+  state.source = { u: 0.08, v: Math.PI };
+  state.destination = { u: Math.PI * 2 - 0.08, v: Math.PI };
+  const baseGraph = buildBaseGraph(state);
+  const partition = createNestedDissectionOrder(baseGraph, 4);
+  const gridWidth = state.resolution + 1;
+  const seamNodes = new Set();
+  for (let j = 0; j <= state.resolution; j += 1) {
+    seamNodes.add(baseGraph.partition.gridNodeIds[j * gridWidth]);
+  }
+  for (let i = 0; i <= state.resolution; i += 1) {
+    seamNodes.add(baseGraph.partition.gridNodeIds[i]);
+  }
+  for (const node of seamNodes) assert.equal(partition.separatorLevel[node], 0);
+  const graph = attachQueryPoints(baseGraph, state.source, state.destination, state);
+  const index = buildNestedDissectionHierarchy(baseGraph, { leafSize: 4 });
   const expected = dijkstra(graph, graph.source, graph.target);
   const actual = contractionHierarchyQuery(graph, index);
   assert.equal(actual.found, true);

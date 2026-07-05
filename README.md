@@ -1,6 +1,6 @@
 # Riemannian Space Lab
 
-An interactive browser environment for defining and solving mesh-based shortest-path problems on curved Riemannian surfaces. It supports analytical parameterizations, heightmaps, imported triangle meshes, obstacle placement, unindexed baselines, ALT landmarks, and Contraction Hierarchies.
+An interactive browser environment for defining and solving mesh-based shortest-path problems on curved Riemannian surfaces. It supports analytical parameterizations, heightmaps, imported triangle meshes, obstacle placement, unindexed baselines, ALT landmarks, standard Contraction Hierarchies, and nested-dissection separator ordering.
 
 ## Documentation
 
@@ -26,9 +26,10 @@ pnpm.cmd test
 - Adjust surface parameters, mesh resolution (up to 256), and surface colour from the left panel.
 - Choose **Source** or **Destination**, then click the surface.
 - Choose **Obstacle**, click at least three vertices, then select **Close polygon**.
-- Choose **Dijkstra**, **Bidirectional Dijkstra**, **Landmark A***, or **Contraction Hierarchies** and select **Compute path**.
+- Choose **Dijkstra**, **Bidirectional Dijkstra**, **Landmark A***, **Contraction Hierarchies**, or **Separator-order CH** and select **Compute path**.
 - For Landmark A*, choose the landmark count and run **Build landmark index** before querying.
 - For Contraction Hierarchies, run **Build CH index** and monitor or cancel background preprocessing.
+- For Separator-order CH, choose a leaf-area size, build the index, and optionally display the recursively decomposed regions and separator vertices. Imported meshes fall back to standard CH because they do not carry a uniform parameter grid.
 - Toggle **Show expanded vertices** to inspect the search region.
 - Drag to orbit, scroll to zoom, and right-drag to pan in navigation mode.
 
@@ -68,6 +69,8 @@ The default colour map displays the local area distortion
 - ALT Landmark A* with farthest-point landmark selection and reusable distance tables
 - Component-aware landmark allocation for obstacle-disconnected graphs
 - Exact Contraction Hierarchies with bounded witness searches and shortcut unpacking
+- Exact nested-dissection CH ordering with recursive four-way grid decomposition and separator-last contraction
+- Region/separator visualization and configurable leaf-area size for uniformly sampled surfaces
 - Background-worker CH preprocessing with progress and cancellation
 - Temporary source and destination graph nodes shared by every algorithm
 - Riemannian midpoint edge weights on parameterized surfaces
@@ -104,6 +107,7 @@ src/
 │   ├── dijkstra.js
 │   ├── bidirectionalDijkstra.js
 │   ├── contractionHierarchy.js
+│   ├── nestedDissection.js
 │   ├── landmarkIndex.js
 │   └── meshGraph.js
 ├── workers/
