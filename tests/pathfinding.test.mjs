@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bidirectionalDijkstra } from '../src/pathfinding/bidirectionalDijkstra.js';
+import { buildContractionHierarchy, contractionHierarchyQuery } from '../src/pathfinding/contractionHierarchy.js';
 import { dijkstra, dijkstraDistances } from '../src/pathfinding/dijkstra.js';
 import { buildLandmarkIndex, createLandmarkHeuristic, landmarkAStar } from '../src/pathfinding/landmarkIndex.js';
 import { attachQueryPoints, buildBaseGraph, buildSearchGraph } from '../src/pathfinding/meshGraph.js';
@@ -13,6 +14,21 @@ function undirectedGraph(nodeCount, edges) {
     adjacency[b].push({ to: a, weight });
   }
   return { adjacency };
+}
+
+function attachVertexQuery(baseGraph, sourceVertex, targetVertex) {
+  const nodes = baseGraph.nodes.map((node) => ({ position: [...node.position] }));
+  const adjacency = baseGraph.adjacency.map((edges) => edges.map((edge) => ({ ...edge })));
+  const attach = (vertex) => {
+    const node = nodes.length;
+    nodes.push({ position: [...nodes[vertex].position] });
+    adjacency.push([{ to: vertex, weight: 0 }]);
+    adjacency[vertex].push({ to: node, weight: 0 });
+    return node;
+  };
+  const source = attach(sourceVertex);
+  const target = attach(targetVertex);
+  return { nodes, adjacency, source, target, baseNodeCount: baseGraph.nodes.length };
 }
 
 test('bidirectional Dijkstra returns an exact weighted-graph shortest path', () => {
@@ -94,6 +110,60 @@ test('ALT landmark heuristic is admissible for base and temporary query nodes', 
   for (let node = 0; node < graph.nodes.length; node += 1) {
     assert.ok(heuristic(node) <= exact[node] + 1e-8, `heuristic overestimated at node ${node}`);
   }
+});
+
+test('Contraction Hierarchies matches Dijkstra and unpacks to original edges', () => {
+  let seed = 123456789;
+  const random = () => {
+    seed = (1664525 * seed + 1013904223) >>> 0;
+    return seed / 2 ** 32;
+  };
+  const nodeCount = 18;
+  const edges = [];
+  for (let node = 0; node < nodeCount - 1; node += 1) edges.push([node, node + 1, 1 + random() * 4]);
+  for (let a = 0; a < nodeCount; a += 1) {
+    for (let b = a + 2; b < nodeCount; b += 1) {
+      if (random() < 0.16) edges.push([a, b, 1 + random() * 8]);
+    }
+  }
+  const baseGraph = {
+    nodes: Array.from({ length: nodeCount }, (_, node) => ({ position: [node, 0, 0] })),
+    ...undirectedGraph(nodeCount, edges),
+  };
+  const index = buildContractionHierarchy(baseGraph);
+  assert.equal(index.ranks.length, nodeCount);
+  assert.ok(index.edges.length >= edges.length);
+  for (const [sourceVertex, targetVertex] of [[0, 17], [2, 13], [5, 6], [16, 3]]) {
+    const graph = attachVertexQuery(baseGraph, sourceVertex, targetVertex);
+    const expected = dijkstra(graph, graph.source, graph.target);
+    const actual = contractionHierarchyQuery(graph, index);
+    assert.equal(actual.found, true);
+    assert.ok(Math.abs(actual.distance - expected.distance) < 1e-9);
+    const basePath = actual.path.slice(1, -1);
+    for (let step = 1; step < basePath.length; step += 1) {
+      assert.ok(baseGraph.adjacency[basePath[step - 1]].some((edge) => edge.to === basePath[step]), 'CH path contains an unpacked shortcut');
+    }
+  }
+});
+
+test('Contraction Hierarchies supports arbitrary surface query points and obstacles', () => {
+  const state = createSceneState();
+  state.resolution = 22;
+  state.source = { u: -5, v: -1 };
+  state.destination = { u: 5, v: 1 };
+  state.obstacles = [[
+    { u: -1, v: -2.2 },
+    { u: 1, v: -2.2 },
+    { u: 1, v: 1.4 },
+    { u: -1, v: 1.4 },
+  ]];
+  const baseGraph = buildBaseGraph(state);
+  const graph = attachQueryPoints(baseGraph, state.source, state.destination, state);
+  const index = buildContractionHierarchy(baseGraph);
+  const expected = dijkstra(graph, graph.source, graph.target);
+  const actual = contractionHierarchyQuery(graph, index);
+  assert.equal(actual.found, true);
+  assert.ok(Math.abs(actual.distance - expected.distance) < 1e-8);
 });
 
 test('periodic surfaces connect matching seam vertices', () => {
